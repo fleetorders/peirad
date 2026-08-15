@@ -1,0 +1,28 @@
+{
+  "name": "example: claude-code integration",
+  "harness": "claude",
+  "versionArgs": ["--version"],
+  "configDir": ".",
+  "probes": [
+    { "type": "command-exists", "critical": true },
+    { "type": "version" },
+    { "type": "flag-accepted", "flags": ["-p", "--allowedTools"] },
+    {
+      "type": "config-key",
+      "file": "settings.json",
+      "keys": ["hooks.PreToolUse"],
+      "critical": true
+    },
+    {
+      "type": "hook-registered",
+      "file": "settings.json",
+      "event": "PreToolUse",
+      "match": "agent-guard"
+    },
+    {
+      "type": "transcript-field",
+      "glob": "projects/**/*.jsonl",
+      "fields": ["type", "message"]
+    }
+  ]
+}

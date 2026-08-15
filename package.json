@@ -1,0 +1,50 @@
+{
+  "name": "dokimd",
+  "version": "0.1.0",
+  "description": "A doctor for your agent integrations: contract-test hooks, config, flags and transcripts against the harness you actually have installed — so silent drift becomes a caught signal.",
+  "type": "module",
+  "bin": {
+    "dokimd": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "npm run build",
+    "prepublishOnly": "./scripts/artifact-check.sh"
+  },
+  "keywords": [
+    "agent",
+    "claude-code",
+    "mcp",
+    "hooks",
+    "integration",
+    "drift",
+    "doctor",
+    "resilience"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "commander": "12.1.0",
+    "picocolors": "1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "prettier": "3.4.2",
+    "tsup": "8.3.5",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
+  }
+}
