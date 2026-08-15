@@ -9,7 +9,7 @@ let dir: string;
 const ctx = (): ProbeContext => ({ harness: "true", configDir: dir });
 
 beforeAll(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "dokimd-test-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "peirad-test-"));
   fs.writeFileSync(
     path.join(dir, "settings.json"),
     JSON.stringify({

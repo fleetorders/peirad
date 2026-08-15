@@ -26,7 +26,7 @@ function render(v: Verdict): void {
 
 const program = new Command();
 program
-  .name("dokimd")
+  .name("peirad")
   .description(
     "Contract-test agent integrations against the harness you actually have installed.",
   );
@@ -34,7 +34,7 @@ program
 program
   .command("run", { isDefault: true })
   .description("run a doctor manifest and print a dated verdict")
-  .option("-m, --manifest <file>", "manifest path", "dokimd.json")
+  .option("-m, --manifest <file>", "manifest path", "peirad.json")
   .option(
     "-c, --config-dir <dir>",
     "base dir for relative file/glob probes (overrides the manifest)",
@@ -43,7 +43,7 @@ program
   .action((opts: { manifest: string; configDir?: string; json?: boolean }) => {
     const mfPath = path.resolve(opts.manifest);
     if (!fs.existsSync(mfPath)) {
-      process.stderr.write(`dokimd: manifest not found: ${opts.manifest}\n`);
+      process.stderr.write(`peirad: manifest not found: ${opts.manifest}\n`);
       process.exit(2);
     }
     const manifest = loadManifest(mfPath);

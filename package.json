@@ -1,10 +1,10 @@
 {
-  "name": "dokimd",
+  "name": "peirad",
   "version": "0.1.0",
   "description": "A doctor for your agent integrations: contract-test hooks, config, flags and transcripts against the harness you actually have installed — so silent drift becomes a caught signal.",
   "type": "module",
   "bin": {
-    "dokimd": "./dist/cli.js"
+    "peirad": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "files": [

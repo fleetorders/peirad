@@ -7,7 +7,7 @@ forecloses. Supersede an entry with a new one; never rewrite its substance.
 
 **Scope:** repo · **Decided:** 2026-08-15
 
-The tool is one generic engine plus a declarative `dokimd.json` manifest that
+The tool is one generic engine plus a declarative `peirad.json` manifest that
 each project ships. Harness- and project-specific knowledge lives in the
 manifest (data), never in the engine (code).
 
