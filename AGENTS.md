@@ -6,15 +6,15 @@
 > the table regardless of return — surface the conflict, never resolve it
 > silently.
 
-Operating contract for any AI agent working in **dokimd**. This is the single
+Operating contract for any AI agent working in **peirad**. This is the single
 source of truth; per-agent files point here.
 
 ## What this project is
 
 A CLI that contract-tests an agent-harness integration against the live installed
 harness and prints a dated verdict. The engine is generic; per-integration
-knowledge lives in a `dokimd.json` manifest (data, not code). Distributed on npm
-as `dokimd`. Solo developer; MIT.
+knowledge lives in a `peirad.json` manifest (data, not code). Distributed on npm
+as `peirad`. Solo developer; MIT.
 
 ## Stack
 
@@ -71,7 +71,7 @@ nothing about the developer or their other work?_
 - `src/manifest.ts` — manifest type + loader.
 - `src/probes.ts` — the probe implementations (one integration point each).
 - `src/doctor.ts` — the runner (loads a manifest, produces a dated verdict).
-- `src/cli.ts` — the `dokimd` command; `src/index.ts` — the public API.
+- `src/cli.ts` — the `peirad` command; `src/index.ts` — the public API.
 - `test/` — unit tests for the deterministic probe logic.
 
 ## Done =

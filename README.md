@@ -1,13 +1,15 @@
-# dokimd
+# peirad
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/triartleet/dokimd/main/media/dokimd-logo.png" width="520" alt="dokimd — a manifest card and a harness card flanking a live vitals reading, an integration checked and proven to hold">
+  <img src="https://raw.githubusercontent.com/triartleet/peirad/main/media/peirad-logo.png" width="520" alt="peirad — a manifest card and a harness card flanking a live vitals reading, an integration checked and proven to hold">
   <p>
-    <a href="https://www.npmjs.com/package/dokimd"><img src="https://img.shields.io/npm/v/dokimd.svg?label=npm&color=cb3837" alt="npm version"></a>
-    <a href="https://github.com/triartleet/dokimd/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/triartleet/dokimd/ci.yml?branch=main&label=CI" alt="CI"></a>
-    <a href="https://github.com/triartleet/dokimd/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a>
+    <a href="https://www.npmjs.com/package/peirad"><img src="https://img.shields.io/npm/v/peirad.svg?label=npm&color=cb3837" alt="npm version"></a>
+    <a href="https://github.com/triartleet/peirad/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/triartleet/peirad/ci.yml?branch=main&label=CI" alt="CI"></a>
+    <a href="https://github.com/triartleet/peirad/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a>
   </p>
 </div>
+
+_πεῖρα — Greek for the trial that puts a thing to the test; the root of empirical._
 
 **Know the moment your agent integration stops holding.**
 
@@ -17,12 +19,12 @@ shipped a dozen updates. Your integration might still work, or it might have
 quietly stopped the day a flag was renamed — and nothing told you, because the
 failure is silent.
 
-dokimd contract-tests your integration against the harness you actually have
+peirad contract-tests your integration against the harness you actually have
 installed, right now, and prints a dated verdict that names the version it
 checked.
 
 ```
-$ npx dokimd --manifest dokimd.json
+$ npx peirad --manifest peirad.json
 
 my integration — harness claude 2.1.223 · 2026-08-15
   ok    command-exists(claude): claude is on PATH
@@ -39,10 +41,10 @@ drifted; changing it is yours.
 
 ## Quick start
 
-Write a small `dokimd.json` describing what your integration relies on, then run:
+Write a small `peirad.json` describing what your integration relies on, then run:
 
 ```sh
-npx dokimd --manifest dokimd.json
+npx peirad --manifest peirad.json
 ```
 
 Exit code is non-zero on any drift, so it drops straight into CI or a scheduled
@@ -66,7 +68,7 @@ reports `blocked`. Nothing throws — one drift never hides the next.
 
 ## How it works
 
-dokimd is a generic engine plus a per-project manifest. The manifest is data —
+peirad is a generic engine plus a per-project manifest. The manifest is data —
 which probes to run, and the flags/keys/paths your integration depends on — so
 adding a check or a new harness is a manifest edit, not an engine change. The
 engine resolves the harness, runs each probe against the live install, and

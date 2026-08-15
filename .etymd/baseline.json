@@ -1,18 +1,18 @@
 {
   "packVersion": "7",
   "etymdVersion": "0.10.0",
-  "approvedAt": "2026-08-15T15:38:46.374Z",
+  "approvedAt": "2026-08-15T19:04:59.138Z",
   "profile": "solo",
   "facts": {
     "etymdVersion": "0.10.0",
     "packVersion": "7",
-    "generatedAt": "2026-08-15T15:38:46.370Z",
+    "generatedAt": "2026-08-15T19:04:59.136Z",
     "root": ".",
-    "name": "dokimd",
+    "name": "peirad",
     "git": {
       "isRepo": true,
       "branch": "main",
-      "head": "159c749",
+      "head": "09fbad1",
       "hooksPath": ".githooks",
       "husky": false,
       "recentAuthors": 1
@@ -36,7 +36,9 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "prepare": "npm run build",
-        "prepublishOnly": "./scripts/artifact-check.sh"
+        "prepublishOnly": "./scripts/artifact-check.sh",
+        "changeset": "changeset",
+        "version:packages": "changeset version"
       },
       "formatCheck": "format:check",
       "typecheck": "typecheck",
@@ -197,17 +199,20 @@
       }
     ],
     "shell": {
-      "scripts": 0
+      "scripts": 4
     },
     "freshness": {
-      "repoLastCommit": "2026-08-15T15:16:44+02:00",
-      "artifacts": [],
-      "unverifiable": [
+      "repoLastCommit": "2026-08-15T20:30:48+02:00",
+      "artifacts": [
         {
+          "artifactId": "decisions",
           "path": "DECISIONS.md",
-          "reason": "untracked — never committed"
+          "lastCommit": "2026-08-15T20:19:42+02:00",
+          "commitsSince": true,
+          "dirty": true
         }
-      ]
+      ],
+      "unverifiable": []
     },
     "tree": {
       "dirs": [
@@ -218,6 +223,10 @@
         {
           "name": ".githooks",
           "files": 3
+        },
+        {
+          "name": ".changeset",
+          "files": 2
         },
         {
           "name": "media",

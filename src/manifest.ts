@@ -1,6 +1,6 @@
 /**
  * A doctor manifest declares which contract tests to run against a harness. It is
- * data, not code — a project ships a small `dokimd.json` and the engine runs it,
+ * data, not code — a project ships a small `peirad.json` and the engine runs it,
  * so adding a project or a probe never touches the engine (adapter-per-consumer).
  */
 import fs from "node:fs";
