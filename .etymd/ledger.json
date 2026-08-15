@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "gate-integrity/ci-only-test",
+      "status": "open",
+      "tier": "gap",
+      "claim": "unit tests is enforced only in CI — no local hook runs it",
+      "firstSeen": "2026-08-15T15:38:31.243Z",
+      "lastSeen": "2026-08-15T15:38:47.256Z"
+    },
+    {
+      "id": "gate-integrity/local-only-format-check",
+      "status": "open",
+      "tier": "gap",
+      "claim": "format checking runs only in local hooks — CI never re-checks it",
+      "firstSeen": "2026-08-15T15:38:31.243Z",
+      "lastSeen": "2026-08-15T15:38:47.256Z"
+    }
+  ]
+}
