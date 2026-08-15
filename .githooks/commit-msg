@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# etymd: the commit message itself — content screen, then format.
+#
+# The staged-content gate reads file bytes and never sees the message, yet a message is as
+# permanently published as any file. No-op where no checker is installed.
+#
+# Bypass, with a reason: git commit --no-verify
+GATE="${COMMIT_MSG_GATE:-$(command -v etymd || true)}"
+if [ -x "$GATE" ]; then
+  "$GATE" screen --message "$1" || exit 1
+fi
+
+# Repo-owned checks. This file is generated and will be overwritten; `.githooks/commit-msg.local`
+# is yours — etymd never reads, writes, or regenerates it. Put project-specific guards there.
+LOCAL="$(dirname "$0")/commit-msg.local"
+if [ -x "$LOCAL" ]; then
+  "$LOCAL" "$@" || exit 1
+fi
+
+exit 0
+# etymd:generated pack-v7 9f4c30f0f8fedb56
