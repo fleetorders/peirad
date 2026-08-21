@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadManifest } from "./manifest.js";
 import { runManifest, type Verdict } from "./doctor.js";
+import { triageCommand } from "./triage.js";
 
 function render(v: Verdict): void {
   const mark = (s: string): string =>
@@ -57,5 +58,35 @@ program
     else render(verdict);
     process.exit(verdict.ok ? 0 : 1);
   });
+
+program
+  .command("triage")
+  .description("pre-assess an alarm against a rubric (machine, unverified)")
+  .requiredOption(
+    "--alarm <file|->",
+    "alarm text to assess (file, or - for stdin)",
+  )
+  .requiredOption(
+    "--rubric <file|changelog>",
+    "rubric markdown file, or 'changelog' to derive it from the manifest",
+  )
+  .option(
+    "--manifest <file>",
+    "manifest path (harness + changelog rubric)",
+    "peirad.json",
+  )
+  .option("--format <md|json>", "output format", "md")
+  .option("--timeout <seconds>", "harness call timeout in seconds", "120")
+  .action(
+    (opts: {
+      alarm: string;
+      rubric: string;
+      manifest: string;
+      format: string;
+      timeout: string;
+    }) => {
+      process.exit(triageCommand(opts));
+    },
+  );
 
 program.parse();

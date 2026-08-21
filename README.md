@@ -101,6 +101,47 @@ Relative `file`/`glob` paths resolve against the manifest's directory, or pass
 `--config-dir` to point at your harness config location. Add `--json` for a
 machine-readable verdict.
 
+## Triage — does the drift matter?
+
+`run` tells you _that_ something drifted; `triage` tells you _whether it
+matters_. It reads an alarm — a changelog excerpt, a CI failure, a drift report
+— against a rubric and prints a structured pre-assessment for the person who
+has to decide. The assessment is machine-written and labelled unverified by
+construction; nothing is edited or closed on its say-so.
+
+```sh
+npx peirad triage --alarm changelog.md --rubric changelog --manifest peirad.json
+```
+
+The model call goes through the harness named in your manifest, headless (no
+tools, default model) — the same binary the probes exercise. `--rubric` takes
+a markdown file, or the built-in `changelog`, which builds the rubric from your
+own manifest — "did anything I declared a dependency on change?" — listing
+every flag, settings key, hook and transcript field your probes rely on.
+
+```
+## Pre-assessment (machine, unverified)
+Verdict: action
+Confidence: high
+Reasoning:
+- declared flag --allowedTools is renamed — "The `--allowedTools` flag is now `--allowed-tools`; the old spelling is no longer accepted."
+Draft resolution:
+Rename --allowedTools to --allowed-tools in the launch script; retest the PreToolUse hook.
+```
+
+Two guards keep it honest:
+
+- **Quote guard** — every reasoning point must quote a line found verbatim in
+  the alarm; points that cannot be traced are dropped and counted in a
+  trailing `dropped: N unquotable point(s)` line.
+- **Loud failure** — if the harness call fails or times out, the command exits
+  `2` with `pre-assessment unavailable: <reason>` instead of guessing.
+
+Exit `0` on any verdict — a verdict is information, not a failure. `--format
+json` emits `{verdict, confidence, reasoning, draft, dropped, assessed_at,
+harness, harness_version, rubric}`. A `PEIRAD_HARNESS` environment variable
+overrides the manifest's harness, which is handy for testing.
+
 ## What it is NOT
 
 - **Not a sandbox or a security tool.** It reports whether your wiring still

@@ -51,3 +51,27 @@ product's value, not an extra.
 
 **Consequences:** every probe returns a verdict object rather than throwing; the
 verdict always carries the harness version it was checked against.
+
+### D-004 — triage asks the manifest's harness, and only keeps evidence the alarm actually says
+
+**Scope:** repo · **Decided:** 2026-08-22
+
+`peirad triage` pre-assesses an alarm against a rubric by calling the
+manifest's own harness headless (`-p … --output-format json`, no tools,
+default model). Every reasoning point in the output must quote a line found
+verbatim in the alarm — points that cannot are dropped and counted. The
+command prints and exits 0 on any verdict; a failed or timed-out harness call
+exits 2 with `pre-assessment unavailable: <reason>` rather than guessing.
+
+**Why:** an assessment meant to be read unattended is only as good as its
+evidence being checkable and its failures being visible. The quote guard makes
+fabricated evidence self-eliminating without trusting the model to self-report
+it; the `(machine, unverified)` heading and the print-only contract keep the
+human as the decider; routing the call through the same harness the probes
+exercise means the tool never grows a second model dependency.
+
+**Consequences:** all judgement criteria live in rubrics (markdown files), not
+the engine — the built-in `changelog` rubric is derived from the manifest, so
+it stays in sync with what the project declared. A point the model cannot
+ground in a quoted line vanishes from the output, so a lazy answer reads as an
+empty one, and an unquotable answer reads as `dropped: N`.
