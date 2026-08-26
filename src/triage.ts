@@ -28,6 +28,19 @@ export interface ReasoningPoint {
   point: string;
 }
 
+/**
+ * Token/cost accounting the harness reported alongside its reply, normalized
+ * across the common envelope spellings. `null` when the harness reported none.
+ */
+export interface HarnessUsage {
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  output_tokens: number;
+  model: string | null;
+  cost_usd: number | null;
+}
+
 export interface TriageResult {
   verdict: TriageVerdict;
   confidence: TriageConfidence;
@@ -38,6 +51,8 @@ export interface TriageResult {
   assessed_at: string;
   harness: string;
   harness_version: string;
+  /** What the harness reported the call cost, or null if it reported nothing. */
+  usage: HarnessUsage | null;
   /** The rubric that was applied: "changelog" or the file path as given. */
   rubric: string;
 }
@@ -135,6 +150,48 @@ function parseJsonLenient(text: string): unknown {
   }
 }
 
+/**
+ * Pull the usage block out of a headless-reply envelope. Accepts the common
+ * field spellings (input/output tokens, cache read/write, model, cost);
+ * anything absent counts as 0 / null. Returns null only when the envelope
+ * carries no usage object at all.
+ */
+function parseUsage(envelope: unknown): HarnessUsage | null {
+  if (!envelope || typeof envelope !== "object") return null;
+  const e = envelope as Record<string, unknown>;
+  const u = e.usage;
+  if (!u || typeof u !== "object") return null;
+  const block = u as Record<string, unknown>;
+  const num = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v) ? v : 0;
+  const model =
+    typeof e.model === "string" && e.model
+      ? e.model
+      : typeof block.model === "string" && block.model
+        ? block.model
+        : null;
+  const cost =
+    typeof e.total_cost_usd === "number"
+      ? e.total_cost_usd
+      : typeof e.cost_usd === "number"
+        ? e.cost_usd
+        : typeof block.cost_usd === "number"
+          ? block.cost_usd
+          : null;
+  return {
+    input_tokens: num(block.input_tokens),
+    cache_read_tokens: num(
+      block.cache_read_input_tokens ?? block.cache_read_tokens,
+    ),
+    cache_write_tokens: num(
+      block.cache_creation_input_tokens ?? block.cache_write_tokens,
+    ),
+    output_tokens: num(block.output_tokens),
+    model,
+    cost_usd: cost,
+  };
+}
+
 export function assessAlarm(opts: AssessOptions): TriageOutcome {
   const { alarm, rubric, harness, timeoutSeconds } = opts;
   const version = harnessVersion(harness, opts.versionArgs ?? ["--version"]);
@@ -161,6 +218,7 @@ export function assessAlarm(opts: AssessOptions): TriageOutcome {
   } catch {
     return { ok: false, reason: "harness output was not JSON" };
   }
+  const usage = parseUsage(envelope);
   // Headless harnesses wrap the reply text in a result field; accept the
   // assessment object itself too, for harnesses that emit it directly.
   const reply =
@@ -225,9 +283,22 @@ export function assessAlarm(opts: AssessOptions): TriageOutcome {
       assessed_at: new Date().toISOString(),
       harness,
       harness_version: version,
+      usage,
       rubric: "",
     },
   };
+}
+
+/** One trailing `usage:` line — what the harness said the call cost it. */
+export function renderUsageLine(u: HarnessUsage | null): string {
+  if (!u) return "usage: not reported by the harness";
+  const cached = u.cache_read_tokens + u.cache_write_tokens;
+  const parts = [
+    `in ${u.input_tokens} / cached ${cached} / out ${u.output_tokens} tokens`,
+  ];
+  if (u.model) parts.push(`model ${u.model}`);
+  if (u.cost_usd !== null) parts.push(`cost $${u.cost_usd}`);
+  return `usage: ${parts.join(" · ")}`;
 }
 
 export function renderTriageMarkdown(t: TriageResult): string {
@@ -249,6 +320,7 @@ export function renderTriageMarkdown(t: TriageResult): string {
   if (t.dropped > 0) {
     lines.push(`dropped: ${t.dropped} unquotable point(s)`);
   }
+  lines.push(renderUsageLine(t.usage));
   return lines.join("\n") + "\n";
 }
 
@@ -262,6 +334,8 @@ export interface TriageCliOptions {
   manifest: string;
   format: string;
   timeout: string;
+  /** Optional JSONL file to append one machine-readable row per call to. */
+  usageLog?: string;
 }
 
 /**
@@ -330,6 +404,26 @@ export function triageCommand(opts: TriageCliOptions): number {
     return 2;
   }
   const result: TriageResult = { ...outcome.result, rubric: opts.rubric };
+  if (opts.usageLog) {
+    const row = {
+      ts: result.assessed_at,
+      harness: result.harness,
+      harness_version: result.harness_version,
+      rubric: result.rubric,
+      verdict: result.verdict,
+      usage: result.usage,
+    };
+    try {
+      fs.appendFileSync(opts.usageLog, JSON.stringify(row) + "\n");
+    } catch (e) {
+      // A log the caller asked for and did not get is a silent metering gap —
+      // fail the command rather than print an unaccounted assessment.
+      process.stderr.write(
+        `peirad: cannot write usage log ${opts.usageLog}: ${String(e)}\n`,
+      );
+      return 2;
+    }
+  }
   process.stdout.write(
     opts.format === "json"
       ? renderTriageJson(result)
