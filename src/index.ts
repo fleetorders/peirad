@@ -9,6 +9,7 @@ export type {
   TriageVerdict,
   TriageConfidence,
   ReasoningPoint,
+  HarnessUsage,
   TriageResult,
   TriageOutcome,
 } from "./triage.js";
