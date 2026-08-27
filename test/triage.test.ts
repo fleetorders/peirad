@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   assessAlarm,
@@ -10,7 +12,17 @@ import { loadManifest } from "../src/manifest.js";
 
 const here = (f: string): string => fileURLToPath(new URL(f, import.meta.url));
 const FAKE = here("./fake-harness.sh");
+const NOUSAGE = here("./fake-harness-nousage.sh");
 const ALARM = fs.readFileSync(here("./fixtures/changelog-alarm.md"), "utf8");
+
+const FAKE_USAGE = {
+  input_tokens: 12,
+  cache_read_tokens: 34,
+  cache_write_tokens: 5,
+  output_tokens: 67,
+  model: "fake-model-x",
+  cost_usd: 0.0123,
+};
 
 // Capture what triageCommand prints so assertions run against real output.
 let out = "";
@@ -65,6 +77,30 @@ describe("assessAlarm", () => {
     expect(outcome.result.harness_version).toBe("fake-harness 1.2.3");
   });
 
+  it("captures the usage block the harness reported", () => {
+    const outcome = assessAlarm({
+      alarm: ALARM,
+      rubric: "# rubric\nassess the alarm.",
+      harness: FAKE,
+      timeoutSeconds: 20,
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.usage).toEqual(FAKE_USAGE);
+  });
+
+  it("reports null usage when the envelope carries no usage block", () => {
+    const outcome = assessAlarm({
+      alarm: ALARM,
+      rubric: "# rubric",
+      harness: NOUSAGE,
+      timeoutSeconds: 20,
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.usage).toBeNull();
+  });
+
   it("degrades loudly when the harness output is not JSON", () => {
     const outcome = assessAlarm({
       alarm: ALARM,
@@ -112,6 +148,36 @@ describe("triageCommand", () => {
     expect(out).toContain("dropped: 1 unquotable point(s)");
   });
 
+  it("prints a usage line with tokens, model and cost", () => {
+    capture();
+    process.env.PEIRAD_HARNESS = FAKE;
+    const code = triageCommand({
+      alarm: here("./fixtures/changelog-alarm.md"),
+      rubric: "changelog",
+      manifest: here("./fixtures/peirad.json"),
+      format: "md",
+      timeout: "20",
+    });
+    expect(code).toBe(0);
+    expect(out).toContain(
+      "usage: in 12 / cached 39 / out 67 tokens · model fake-model-x · cost $0.0123",
+    );
+  });
+
+  it("says so plainly when the harness reported no usage", () => {
+    capture();
+    process.env.PEIRAD_HARNESS = NOUSAGE;
+    const code = triageCommand({
+      alarm: here("./fixtures/changelog-alarm.md"),
+      rubric: "changelog",
+      manifest: here("./fixtures/peirad.json"),
+      format: "md",
+      timeout: "20",
+    });
+    expect(code).toBe(0);
+    expect(out).toContain("usage: not reported by the harness");
+  });
+
   it("emits parseable json carrying the verdict and rubric name", () => {
     capture();
     process.env.PEIRAD_HARNESS = FAKE;
@@ -126,6 +192,75 @@ describe("triageCommand", () => {
     const j = JSON.parse(out) as { verdict: string; rubric: string };
     expect(j.verdict).toBe("action");
     expect(j.rubric).toBe("changelog");
+  });
+
+  it("carries the usage object in json output", () => {
+    capture();
+    process.env.PEIRAD_HARNESS = FAKE;
+    const code = triageCommand({
+      alarm: here("./fixtures/changelog-alarm.md"),
+      rubric: "changelog",
+      manifest: here("./fixtures/peirad.json"),
+      format: "json",
+      timeout: "20",
+    });
+    expect(code).toBe(0);
+    const j = JSON.parse(out) as Record<string, unknown>;
+    expect(j.usage).toEqual(FAKE_USAGE);
+  });
+
+  it("appends one JSON row per call to --usage-log", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "peirad-usage-"));
+    const log = path.join(dir, "usage.jsonl");
+    try {
+      capture();
+      process.env.PEIRAD_HARNESS = FAKE;
+      for (let i = 0; i < 2; i++) {
+        expect(
+          triageCommand({
+            alarm: here("./fixtures/changelog-alarm.md"),
+            rubric: "changelog",
+            manifest: here("./fixtures/peirad.json"),
+            format: "md",
+            timeout: "20",
+            usageLog: log,
+          }),
+        ).toBe(0);
+      }
+      const rows = fs
+        .readFileSync(log, "utf8")
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l));
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expect(row).toMatchObject({
+          harness: FAKE,
+          harness_version: "fake-harness 1.2.3",
+          rubric: "changelog",
+          verdict: "action",
+          usage: FAKE_USAGE,
+        });
+        expect(typeof row.ts).toBe("string");
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exits 2 when the usage log cannot be written", () => {
+    capture();
+    process.env.PEIRAD_HARNESS = FAKE;
+    const code = triageCommand({
+      alarm: here("./fixtures/changelog-alarm.md"),
+      rubric: "changelog",
+      manifest: here("./fixtures/peirad.json"),
+      format: "md",
+      timeout: "20",
+      usageLog: "/no/such/dir/usage.jsonl",
+    });
+    expect(code).toBe(2);
+    expect(err).toContain("cannot write usage log");
   });
 
   it("accepts a rubric file and reports its path as the rubric", () => {

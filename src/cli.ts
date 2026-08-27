@@ -77,6 +77,10 @@ program
   )
   .option("--format <md|json>", "output format", "md")
   .option("--timeout <seconds>", "harness call timeout in seconds", "120")
+  .option(
+    "--usage-log <file>",
+    "append one JSON row per call (tokens, model, cost) to this file",
+  )
   .action(
     (opts: {
       alarm: string;
@@ -84,6 +88,7 @@ program
       manifest: string;
       format: string;
       timeout: string;
+      usageLog?: string;
     }) => {
       process.exit(triageCommand(opts));
     },
