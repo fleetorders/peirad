@@ -127,6 +127,7 @@ Reasoning:
 - declared flag --allowedTools is renamed — "The `--allowedTools` flag is now `--allowed-tools`; the old spelling is no longer accepted."
 Draft resolution:
 Rename --allowedTools to --allowed-tools in the launch script; retest the PreToolUse hook.
+usage: in 4 / cached 1850 / out 220 tokens · model claude-sonnet-5 · cost $0.0123
 ```
 
 Two guards keep it honest:
@@ -137,10 +138,17 @@ Two guards keep it honest:
 - **Loud failure** — if the harness call fails or times out, the command exits
   `2` with `pre-assessment unavailable: <reason>` instead of guessing.
 
+The harness's own accounting for the call — tokens in/cache/out, model, cost —
+ends up in a trailing `usage:` line, or a `usage` object with `--format json`
+(`null` when the harness reports none). Pass `--usage-log <file>` to also
+append one JSON row per call to that file, so triage runs you schedule or
+script can be tallied afterwards; a log that cannot be written fails the
+command (exit `2`) rather than pass silently.
+
 Exit `0` on any verdict — a verdict is information, not a failure. `--format
 json` emits `{verdict, confidence, reasoning, draft, dropped, assessed_at,
-harness, harness_version, rubric}`. A `PEIRAD_HARNESS` environment variable
-overrides the manifest's harness, which is handy for testing.
+harness, harness_version, usage, rubric}`. A `PEIRAD_HARNESS` environment
+variable overrides the manifest's harness, which is handy for testing.
 
 ## What it is NOT
 
