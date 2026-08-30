@@ -1,11 +1,11 @@
 # peirad
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/triartleet/peirad/main/media/peirad-logo.png" width="520" alt="peirad — a manifest card and a harness card flanking a live vitals reading, an integration checked and proven to hold">
+  <img src="https://raw.githubusercontent.com/fleetorders/peirad/main/media/peirad-logo.png" width="520" alt="peirad — a manifest card and a harness card flanking a live vitals reading, an integration checked and proven to hold">
   <p>
     <a href="https://www.npmjs.com/package/peirad"><img src="https://img.shields.io/npm/v/peirad.svg?label=npm&color=cb3837" alt="npm version"></a>
-    <a href="https://github.com/triartleet/peirad/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/triartleet/peirad/ci.yml?branch=main&label=CI" alt="CI"></a>
-    <a href="https://github.com/triartleet/peirad/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a>
+    <a href="https://github.com/fleetorders/peirad/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/fleetorders/peirad/ci.yml?branch=main&label=CI" alt="CI"></a>
+    <a href="https://github.com/fleetorders/peirad/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a>
   </p>
 </div>
 
