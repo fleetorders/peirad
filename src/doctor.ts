@@ -5,15 +5,20 @@
  */
 import type { Manifest } from "./manifest.js";
 import { runProbe, harnessVersion, type ProbeResult } from "./probes.js";
+import { resolveProfile } from "./harness-profiles.js";
 
 export interface Verdict {
   name: string;
   harness: string;
+  /** Invocation profile the probes ran under ("claude", "codex", …). */
+  profile: string;
   version: string;
   date: string;
   results: ProbeResult[];
   degraded: number;
   blocked: number;
+  /** Probes that cannot apply to this harness family (declared, not passed). */
+  na: number;
   ok: boolean;
 }
 
@@ -27,7 +32,16 @@ export interface RunOptions {
 export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
   const versionArgs = manifest.versionArgs ?? ["--version"];
   const configDir = opts.configDir ?? manifest.configDir ?? ".";
-  const ctx = { harness: manifest.harness, configDir };
+  const profile = resolveProfile(
+    manifest.harness,
+    manifest.harnessProfile,
+    manifest,
+  );
+  const ctx = {
+    harness: manifest.harness,
+    configDir,
+    profileName: profile.name,
+  };
 
   const version = harnessVersion(manifest.harness, versionArgs);
   const results: ProbeResult[] = [];
@@ -41,14 +55,17 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
 
   const degraded = results.filter((r) => r.status === "degraded").length;
   const blocked = results.filter((r) => r.status === "blocked").length;
+  const na = results.filter((r) => r.status === "n/a").length;
   return {
     name: manifest.name ?? manifest.harness,
     harness: manifest.harness,
+    profile: profile.name,
     version,
     date: opts.date,
     results,
     degraded,
     blocked,
+    na,
     ok: degraded === 0 && blocked === 0,
   };
 }
