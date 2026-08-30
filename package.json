@@ -35,6 +35,14 @@
     "resilience"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fleetorders/peirad.git"
+  },
+  "homepage": "https://github.com/fleetorders/peirad#readme",
+  "bugs": {
+    "url": "https://github.com/fleetorders/peirad/issues"
+  },
   "engines": {
     "node": ">=18.17"
   },
