@@ -123,4 +123,92 @@ describe("loadManifest", () => {
     fs.writeFileSync(bad, JSON.stringify({ probes: [] }));
     expect(() => loadManifest(bad)).toThrow();
   });
+  it("rejects non-array promptArgs/outputArgs", () => {
+    const bad = path.join(dir, "bad-args.json");
+    fs.writeFileSync(
+      bad,
+      JSON.stringify({ harness: "x", promptArgs: "-p", probes: [] }),
+    );
+    expect(() => loadManifest(bad)).toThrow(/promptArgs/);
+  });
+});
+
+describe("profile applicability", () => {
+  it("declares config-key n/a for the codex profile, never a pass", () => {
+    const r = runProbe(
+      { type: "config-key", file: "settings.json", keys: ["hooks.PreToolUse"] },
+      { ...ctx(), profileName: "codex" },
+      [],
+    );
+    expect(r.status).toBe("n/a");
+    expect(r.detail).toContain('profile "codex"');
+    expect(r.probe).toBe("config-key(settings.json)");
+  });
+
+  it("declares hook-registered n/a for the codex profile", () => {
+    const r = runProbe(
+      {
+        type: "hook-registered",
+        file: "settings.json",
+        event: "PreToolUse",
+        match: "agent-guard",
+      },
+      { ...ctx(), profileName: "codex" },
+      [],
+    );
+    expect(r.status).toBe("n/a");
+  });
+
+  it("keeps config-key passing under the default (claude) profile", () => {
+    const r = runProbe(
+      { type: "config-key", file: "settings.json", keys: ["hooks.PreToolUse"] },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("pass");
+  });
+});
+
+describe("flag-accepted help routing", () => {
+  let cli: string;
+  beforeAll(() => {
+    cli = path.join(dir, "subcommand-cli.sh");
+    // Help only exists under the subcommand, like `codex exec --help`.
+    fs.writeFileSync(
+      cli,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "exec" ] && [ "$2" = "--help" ]; then',
+        '  echo "  --json   print events as JSONL"',
+        '  echo "  -o, --output-last-message FILE"',
+        "  exit 0",
+        "fi",
+        "exit 1",
+        "",
+      ].join("\n"),
+    );
+    fs.chmodSync(cli, 0o755);
+  });
+
+  it("checks a subcommand's help when the profile says so", () => {
+    const r = runProbe(
+      { type: "flag-accepted", flags: ["--json", "--output-last-message"] },
+      { harness: cli, configDir: dir, profileName: "codex" },
+      [],
+    );
+    expect(r.status).toBe("pass");
+    expect(r.detail).toContain("all flags present");
+  });
+
+  it("still checks root --help under the default profile", () => {
+    const r = runProbe(
+      { type: "flag-accepted", flags: ["--json"] },
+      { harness: cli, configDir: dir },
+      [],
+    );
+    // Root --help fails on this fake, so the flags are not found: drift,
+    // not a silent pass.
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("not in --help: --json");
+  });
 });

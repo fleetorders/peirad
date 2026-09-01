@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, afterAll } from "vitest";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,10 +10,12 @@ import {
   triageCommand,
 } from "../src/triage.js";
 import { loadManifest } from "../src/manifest.js";
+import { resolveProfile } from "../src/harness-profiles.js";
 
 const here = (f: string): string => fileURLToPath(new URL(f, import.meta.url));
 const FAKE = here("./fake-harness.sh");
 const NOUSAGE = here("./fake-harness-nousage.sh");
+const FAKECODEX = here("./fake-codex-harness.sh");
 const ALARM = fs.readFileSync(here("./fixtures/changelog-alarm.md"), "utf8");
 
 const FAKE_USAGE = {
@@ -316,4 +319,235 @@ describe("triageCommand", () => {
     ).toBe(2);
     expect(err).toContain("rubric not found");
   });
+});
+
+// Writes a manifest to a temp dir and returns its path; cleaned in afterAll.
+const tempDirs: string[] = [];
+function writeManifest(name: string, m: Record<string, unknown>): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "peirad-mf-"));
+  tempDirs.push(dir);
+  const file = path.join(dir, name);
+  fs.writeFileSync(file, JSON.stringify(m));
+  return file;
+}
+
+describe("harness profiles", () => {
+  afterAll(() => {
+    for (const d of tempDirs) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  it("sends the codex profile's argv: exec subcommand, positional prompt, --json", () => {
+    const argvFile = path.join(os.tmpdir(), `peirad-argv-${process.pid}.txt`);
+    process.env.PEIRAD_FAKE_ARGV_FILE = argvFile;
+    try {
+      const outcome = assessAlarm({
+        alarm: ALARM,
+        rubric: "# rubric\nassess the alarm.",
+        harness: FAKECODEX,
+        profile: resolveProfile("codex"),
+        timeoutSeconds: 20,
+      });
+      expect(outcome.ok).toBe(true);
+      const argv = fs.readFileSync(argvFile, "utf8").split("\n");
+      expect(argv[0]).toBe("exec");
+      expect(argv.slice(1, 6)).toEqual([
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        "--color",
+        "never",
+      ]);
+      // The prompt is one multi-line argument, then --json ends the argv.
+      const jsonIdx = argv.indexOf("--json");
+      expect(jsonIdx).toBe(argv.length - 2);
+      expect(argv.slice(6, jsonIdx).join("\n")).toContain(
+        "--- alarm text follows ---",
+      );
+    } finally {
+      delete process.env.PEIRAD_FAKE_ARGV_FILE;
+      fs.rmSync(argvFile, { force: true });
+    }
+  });
+
+  it("runs the codex profile: positional prompt, --json event stream", () => {
+    const outcome = assessAlarm({
+      alarm: ALARM,
+      rubric: "# rubric\nassess the alarm.",
+      harness: FAKECODEX,
+      profile: resolveProfile("codex"),
+      timeoutSeconds: 20,
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.verdict).toBe("action");
+    expect(outcome.result.reasoning).toHaveLength(2);
+    expect(outcome.result.dropped).toBe(1);
+    expect(outcome.result.harness_version).toBe("fake-codex 9.8.7");
+    expect(outcome.result.profile).toBe("codex");
+    // codex reports tokens but neither model nor cost — both stay null.
+    expect(outcome.result.usage).toEqual({
+      input_tokens: 21,
+      cache_read_tokens: 8,
+      cache_write_tokens: 2,
+      output_tokens: 43,
+      model: null,
+      cost_usd: null,
+    });
+  });
+
+  it("infers the codex profile from a manifest whose harness is codex", () => {
+    capture();
+    process.env.PEIRAD_HARNESS = FAKECODEX;
+    const code = triageCommand({
+      alarm: here("./fixtures/changelog-alarm.md"),
+      rubric: "changelog",
+      manifest: here("./fixtures/peirad-codex.json"),
+      format: "md",
+      timeout: "20",
+    });
+    expect(code).toBe(0);
+    expect(out).toContain("Verdict: action\n");
+    expect(out).toContain("usage: in 21 / cached 10 / out 43 tokens\n");
+  });
+
+  it("defaults an unknown harness to the claude convention (backwards compat)", () => {
+    capture();
+    process.env.PEIRAD_HARNESS = FAKE;
+    const mf = writeManifest("peirad.json", {
+      harness: "some-other-cli",
+      probes: [],
+    });
+    const code = triageCommand({
+      alarm: here("./fixtures/changelog-alarm.md"),
+      rubric: "changelog",
+      manifest: mf,
+      format: "json",
+      timeout: "20",
+    });
+    expect(code).toBe(0);
+    const j = JSON.parse(out) as { profile: string; verdict: string };
+    expect(j.profile).toBe("claude");
+    expect(j.verdict).toBe("action");
+  });
+
+  it("selects a profile explicitly with harnessProfile", () => {
+    capture();
+    process.env.PEIRAD_HARNESS = FAKECODEX;
+    const mf = writeManifest("peirad.json", {
+      harness: "my-cli",
+      harnessProfile: "codex",
+      probes: [],
+    });
+    const code = triageCommand({
+      alarm: here("./fixtures/changelog-alarm.md"),
+      rubric: "changelog",
+      manifest: mf,
+      format: "json",
+      timeout: "20",
+    });
+    expect(code).toBe(0);
+    expect((JSON.parse(out) as { profile: string }).profile).toBe("codex");
+  });
+
+  it("overrides the argv templates with promptArgs/outputArgs", () => {
+    capture();
+    process.env.PEIRAD_HARNESS = FAKECODEX;
+    const argvFile = path.join(
+      os.tmpdir(),
+      `peirad-argv-ovr-${process.pid}.txt`,
+    );
+    process.env.PEIRAD_FAKE_ARGV_FILE = argvFile;
+    try {
+      const mf = writeManifest("peirad.json", {
+        harness: "my-cli",
+        harnessProfile: "codex",
+        promptArgs: ["exec", "--ephemeral", "{prompt}"],
+        outputArgs: ["--json"],
+        probes: [],
+      });
+      const code = triageCommand({
+        alarm: here("./fixtures/changelog-alarm.md"),
+        rubric: "changelog",
+        manifest: mf,
+        format: "md",
+        timeout: "20",
+      });
+      expect(code).toBe(0);
+      expect(out).toContain("Verdict: action\n");
+      const argv = fs.readFileSync(argvFile, "utf8").split("\n");
+      // The template was replaced, not merged: --ephemeral (override-only) is
+      // present, --sandbox (profile default) is gone.
+      expect(argv).toContain("--ephemeral");
+      expect(argv).not.toContain("--sandbox");
+      expect(argv[0]).toBe("exec");
+      expect(argv[1]).toBe("--ephemeral");
+      expect(argv.at(-2)).toBe("--json");
+    } finally {
+      delete process.env.PEIRAD_FAKE_ARGV_FILE;
+      fs.rmSync(argvFile, { force: true });
+    }
+  });
+
+  it("exits 2 on an unknown harnessProfile or a promptArgs without {prompt}", () => {
+    capture();
+    process.env.PEIRAD_HARNESS = FAKE;
+    const badProfile = writeManifest("a.json", {
+      harness: "my-cli",
+      harnessProfile: "nope",
+      probes: [],
+    });
+    expect(
+      triageCommand({
+        alarm: here("./fixtures/changelog-alarm.md"),
+        rubric: "changelog",
+        manifest: badProfile,
+        format: "md",
+        timeout: "20",
+      }),
+    ).toBe(2);
+    expect(err).toContain('unknown harnessProfile "nope"');
+    const badArgs = writeManifest("b.json", {
+      harness: "my-cli",
+      promptArgs: ["-p"],
+      probes: [],
+    });
+    expect(
+      triageCommand({
+        alarm: here("./fixtures/changelog-alarm.md"),
+        rubric: "changelog",
+        manifest: badArgs,
+        format: "md",
+        timeout: "20",
+      }),
+    ).toBe(2);
+    expect(err).toContain("promptArgs must contain the {prompt} placeholder");
+  });
+});
+
+// Gated on the real Codex CLI being installed — skips cleanly elsewhere.
+const codexInstalled =
+  spawnSync("codex", ["--version"], { encoding: "utf8", timeout: 10_000 })
+    .status === 0;
+
+describe.skipIf(!codexInstalled)("real codex CLI", () => {
+  it(
+    "returns a valid verdict through the installed codex",
+    { timeout: 240_000 },
+    () => {
+      const outcome = assessAlarm({
+        alarm: ALARM,
+        rubric: "# rubric\nassess the alarm.",
+        harness: "codex",
+        profile: resolveProfile("codex"),
+        timeoutSeconds: 220,
+      });
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      expect(["no-action", "action", "owner-only"]).toContain(
+        outcome.result.verdict,
+      );
+      expect(["low", "medium", "high"]).toContain(outcome.result.confidence);
+      expect(outcome.result.usage?.input_tokens).toBeGreaterThan(0);
+    },
+  );
 });
