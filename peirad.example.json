@@ -23,6 +23,12 @@
       "type": "transcript-field",
       "glob": "projects/**/*.jsonl",
       "fields": ["type", "message"]
+    },
+    {
+      "type": "script",
+      "script": "scripts/check.sh",
+      "args": ["--quick"],
+      "timeoutMs": 60000
     }
   ]
 }

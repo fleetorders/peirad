@@ -118,7 +118,21 @@ function probeLabel(spec: ProbeSpec, harness: string): string {
       return `transcript-field(${spec.glob})`;
     case "hook-registered":
       return `hook-registered(${spec.event}~${spec.match})`;
+    case "script":
+      return `script(${[spec.script, ...(spec.args ?? [])].join(" ")})`;
   }
+}
+
+/** Fold a script's output into one reportable line: leading non-empty lines,
+ * joined with " · ", capped so a chatty finding can't wreck the render. */
+function fold(out: string, maxLines = 3, maxChars = 300): string {
+  const joined = out
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, maxLines)
+    .join(" · ");
+  return joined.length > maxChars ? `${joined.slice(0, maxChars)}…` : joined;
 }
 
 export function runProbe(
@@ -275,6 +289,62 @@ export function runProbe(
           ? `hook "${spec.match}" registered on ${spec.event}`
           : `no ${spec.event} hook matching "${spec.match}"`,
       };
+    }
+    case "script": {
+      const label = `script(${[spec.script, ...(spec.args ?? [])].join(" ")})`;
+      const base = path.resolve(ctx.configDir);
+      const file = path.resolve(base, spec.script);
+      // A verdict the script never delivered is n/a, never a fail: the probe
+      // fails open, so a missing/unrunnable/overshooting script can only
+      // report "no verdict", never block — even when marked critical.
+      const na = (detail: string): ProbeResult => ({
+        probe: label,
+        status: "n/a",
+        detail,
+      });
+      if (!fs.existsSync(file)) {
+        return na(`script not found: ${spec.script}`);
+      }
+      const r = spawnSync(file, spec.args ?? [], {
+        encoding: "utf8",
+        cwd: base,
+        timeout: spec.timeoutMs ?? 30_000,
+      });
+      const out = `${r.stdout ?? ""}`;
+      if (r.error) {
+        // A timeout lands here as ETIMEDOUT, with or without a signal.
+        const code = (r.error as NodeJS.ErrnoException).code;
+        if (code === "ETIMEDOUT" || r.signal) {
+          return na(
+            `killed by ${r.signal ?? "timeout"} after ${spec.timeoutMs ?? 30_000}ms — no verdict`,
+          );
+        }
+        return na(
+          `could not run ${spec.script}: ${r.error.message} (must be executable)`,
+        );
+      }
+      if (r.signal) {
+        return na(`killed by ${r.signal} — no verdict`);
+      }
+      if (r.status === 0) {
+        return {
+          probe: label,
+          status: "pass",
+          detail: fold(out) || "exit 0",
+        };
+      }
+      if (r.status === 1) {
+        return {
+          probe: label,
+          status: fail(spec),
+          detail: fold(out) || "exit 1 (no output)",
+        };
+      }
+      // Exit 2 is the script's own "no verdict" channel; any other exit code
+      // is read the same way — fail-open, never a fail verdict.
+      return na(
+        `exit ${r.status}${out.trim() ? `: ${fold(out, 1)}` : " — no verdict"}`,
+      );
     }
   }
 }

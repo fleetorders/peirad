@@ -62,10 +62,20 @@ You declare probes; each runs against the live harness:
 | `config-key`       | the settings keys you rely on still exist                     |
 | `hook-registered`  | your hook is still wired for its event                        |
 | `transcript-field` | the fields your tool reads from transcripts are still present |
+| `script`           | a repo-provided check still passes                            |
 
 A non-critical probe that drifts reports `degraded`; a probe marked `critical`
 reports `blocked`; a probe its [harness profile](#harness-profiles) says
 cannot apply reports `n/a`. Nothing throws — one drift never hides the next.
+
+The `script` probe runs an executable from the repo the manifest lives in:
+exit 0 passes, exit 1 fails with the script's stdout as the finding, and
+exit 2 reports `n/a` — no verdict. Any other outcome (not executable, killed
+by the timeout, crashed) is read the same way: the probe fails open, so a
+broken probe can only report `n/a`, never claim your integration broke —
+even when marked `critical`. Running a manifest's scripts is running that
+repo's code, the same trust as its npm scripts: a manifest is only as
+trustworthy as the repo that ships it.
 
 ## How it works
 
