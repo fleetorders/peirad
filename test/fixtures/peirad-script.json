@@ -1,0 +1,27 @@
+{
+  "name": "example: script probes",
+  "harness": "true",
+  "versionArgs": ["--version"],
+  "configDir": ".",
+  "probes": [
+    { "type": "command-exists", "critical": true },
+    {
+      "type": "script",
+      "script": "script-probe.sh",
+      "args": ["pass"],
+      "critical": true
+    },
+    {
+      "type": "script",
+      "script": "script-probe.sh",
+      "args": ["fail"],
+      "critical": true
+    },
+    {
+      "type": "script",
+      "script": "script-probe.sh",
+      "args": ["error"],
+      "critical": true
+    }
+  ]
+}

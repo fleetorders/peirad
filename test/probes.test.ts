@@ -117,6 +117,70 @@ describe("transcript-field", () => {
   });
 });
 
+describe("script", () => {
+  const write = (name: string, body: string): string => {
+    const p = path.join(dir, name);
+    fs.writeFileSync(p, body);
+    fs.chmodSync(p, 0o755);
+    return p;
+  };
+  it("exit 0 passes and surfaces the script's stdout", () => {
+    write("ok.sh", '#!/bin/sh\necho "still holds"\nexit 0\n');
+    const r = runProbe({ type: "script", script: "ok.sh" }, ctx(), []);
+    expect(r.status).toBe("pass");
+    expect(r.detail).toContain("still holds");
+  });
+  it("exit 1 fails with stdout as the finding (critical → blocked)", () => {
+    write("bad.sh", '#!/bin/sh\necho "CHECK FAILS — thing drifted"\nexit 1\n');
+    expect(
+      runProbe({ type: "script", script: "bad.sh" }, ctx(), []).status,
+    ).toBe("degraded");
+    const r = runProbe(
+      { type: "script", script: "bad.sh", critical: true },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("blocked");
+    expect(r.detail).toContain("CHECK FAILS — thing drifted");
+  });
+  it("exit 2 is n/a — even when critical (fails open)", () => {
+    write("na.sh", '#!/bin/sh\necho "probe error: no verdict"\nexit 2\n');
+    const r = runProbe(
+      { type: "script", script: "na.sh", critical: true },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("n/a");
+    expect(r.detail).toContain("probe error: no verdict");
+  });
+  it("passes args through and names them in the probe label", () => {
+    write("echo.sh", '#!/bin/sh\necho "arg: $1"\nexit 0\n');
+    const r = runProbe(
+      { type: "script", script: "echo.sh", args: ["quick"] },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("pass");
+    expect(r.probe).toBe("script(echo.sh quick)");
+    expect(r.detail).toContain("arg: quick");
+  });
+  it("a missing script is n/a, not a verdict", () => {
+    const r = runProbe({ type: "script", script: "nope.sh" }, ctx(), []);
+    expect(r.status).toBe("n/a");
+    expect(r.detail).toContain("script not found");
+  });
+  it("a timeout kills the script into the n/a register", () => {
+    write("slow.sh", "#!/bin/sh\nsleep 5\n");
+    const r = runProbe(
+      { type: "script", script: "slow.sh", timeoutMs: 500 },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("n/a");
+    expect(r.detail).toContain("killed");
+  });
+});
+
 describe("loadManifest", () => {
   it("rejects a manifest without harness/probes", () => {
     const bad = path.join(dir, "bad.json");
