@@ -19,6 +19,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { loadManifest, type Manifest } from "./manifest.js";
 import { harnessVersion } from "./probes.js";
+import {
+  expandArgs,
+  parseJsonLenient,
+  resolveProfile,
+  type HarnessProfile,
+} from "./harness-profiles.js";
+
+export type { HarnessUsage } from "./harness-profiles.js";
+import type { HarnessUsage } from "./harness-profiles.js";
 
 export type TriageVerdict = "no-action" | "action" | "owner-only";
 export type TriageConfidence = "low" | "medium" | "high";
@@ -26,19 +35,6 @@ export type TriageConfidence = "low" | "medium" | "high";
 export interface ReasoningPoint {
   quote: string;
   point: string;
-}
-
-/**
- * Token/cost accounting the harness reported alongside its reply, normalized
- * across the common envelope spellings. `null` when the harness reported none.
- */
-export interface HarnessUsage {
-  input_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-  output_tokens: number;
-  model: string | null;
-  cost_usd: number | null;
 }
 
 export interface TriageResult {
@@ -55,6 +51,8 @@ export interface TriageResult {
   usage: HarnessUsage | null;
   /** The rubric that was applied: "changelog" or the file path as given. */
   rubric: string;
+  /** Invocation profile that produced the call ("claude", "codex", …). */
+  profile: string;
 }
 
 export type TriageOutcome =
@@ -134,73 +132,26 @@ export interface AssessOptions {
   rubric: string;
   /** Harness binary to call headless (already resolved, incl. PEIRAD_HARNESS). */
   harness: string;
+  /** Invocation profile; inferred from the harness when absent. */
+  profile?: HarnessProfile;
   versionArgs?: string[];
   timeoutSeconds: number;
 }
 
-function parseJsonLenient(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    // Models (and harnesses) sometimes wrap the object in prose or a fence.
-    const first = text.indexOf("{");
-    const last = text.lastIndexOf("}");
-    if (first === -1 || last <= first) throw new Error("no JSON object found");
-    return JSON.parse(text.slice(first, last + 1));
-  }
-}
-
-/**
- * Pull the usage block out of a headless-reply envelope. Accepts the common
- * field spellings (input/output tokens, cache read/write, model, cost);
- * anything absent counts as 0 / null. Returns null only when the envelope
- * carries no usage object at all.
- */
-function parseUsage(envelope: unknown): HarnessUsage | null {
-  if (!envelope || typeof envelope !== "object") return null;
-  const e = envelope as Record<string, unknown>;
-  const u = e.usage;
-  if (!u || typeof u !== "object") return null;
-  const block = u as Record<string, unknown>;
-  const num = (v: unknown): number =>
-    typeof v === "number" && Number.isFinite(v) ? v : 0;
-  const model =
-    typeof e.model === "string" && e.model
-      ? e.model
-      : typeof block.model === "string" && block.model
-        ? block.model
-        : null;
-  const cost =
-    typeof e.total_cost_usd === "number"
-      ? e.total_cost_usd
-      : typeof e.cost_usd === "number"
-        ? e.cost_usd
-        : typeof block.cost_usd === "number"
-          ? block.cost_usd
-          : null;
-  return {
-    input_tokens: num(block.input_tokens),
-    cache_read_tokens: num(
-      block.cache_read_input_tokens ?? block.cache_read_tokens,
-    ),
-    cache_write_tokens: num(
-      block.cache_creation_input_tokens ?? block.cache_write_tokens,
-    ),
-    output_tokens: num(block.output_tokens),
-    model,
-    cost_usd: cost,
-  };
-}
-
 export function assessAlarm(opts: AssessOptions): TriageOutcome {
   const { alarm, rubric, harness, timeoutSeconds } = opts;
+  const profile = opts.profile ?? resolveProfile(harness);
   const version = harnessVersion(harness, opts.versionArgs ?? ["--version"]);
 
-  const r = spawnSync(
-    harness,
-    ["-p", buildPrompt(alarm, rubric), "--output-format", "json"],
-    { encoding: "utf8", timeout: timeoutSeconds * 1000 },
-  );
+  const args = [
+    ...expandArgs(profile.promptArgs, buildPrompt(alarm, rubric)),
+    ...profile.outputArgs,
+  ];
+  const r = spawnSync(harness, args, {
+    encoding: "utf8",
+    timeout: timeoutSeconds * 1000,
+    input: "",
+  });
   if (r.error) {
     const e = r.error as NodeJS.ErrnoException;
     const why =
@@ -212,22 +163,13 @@ export function assessAlarm(opts: AssessOptions): TriageOutcome {
   if (r.status !== 0) {
     return { ok: false, reason: `harness exited ${r.status}` };
   }
-  let envelope: unknown;
-  try {
-    envelope = parseJsonLenient(r.stdout ?? "");
-  } catch {
-    return { ok: false, reason: "harness output was not JSON" };
+  // The profile unwraps the harness's own envelope/stream shape; everything
+  // downstream sees one reply string plus whatever usage it reported.
+  const parsed = profile.parseOutput(r.stdout ?? "");
+  if (!parsed.ok) {
+    return { ok: false, reason: parsed.reason };
   }
-  const usage = parseUsage(envelope);
-  // Headless harnesses wrap the reply text in a result field; accept the
-  // assessment object itself too, for harnesses that emit it directly.
-  const reply =
-    envelope &&
-    typeof envelope === "object" &&
-    "result" in envelope &&
-    typeof (envelope as { result: unknown }).result === "string"
-      ? (envelope as { result: string }).result
-      : JSON.stringify(envelope);
+  const { reply, usage } = parsed.value;
   let assessment: unknown;
   try {
     assessment = parseJsonLenient(reply);
@@ -285,6 +227,7 @@ export function assessAlarm(opts: AssessOptions): TriageOutcome {
       harness_version: version,
       usage,
       rubric: "",
+      profile: profile.name,
     },
   };
 }
@@ -390,10 +333,22 @@ export function triageCommand(opts: TriageCliOptions): number {
     }
   }
   const harness = process.env.PEIRAD_HARNESS || manifest.harness;
+  let profile: HarnessProfile;
+  try {
+    profile = resolveProfile(
+      manifest.harness,
+      manifest.harnessProfile,
+      manifest,
+    );
+  } catch (e) {
+    process.stderr.write(`peirad: ${String(e)}\n`);
+    return 2;
+  }
   const outcome = assessAlarm({
     alarm,
     rubric: rubricBody,
     harness,
+    profile,
     versionArgs: manifest.versionArgs,
     timeoutSeconds,
   });
@@ -409,6 +364,7 @@ export function triageCommand(opts: TriageCliOptions): number {
       ts: result.assessed_at,
       harness: result.harness,
       harness_version: result.harness_version,
+      profile: result.profile,
       rubric: result.rubric,
       verdict: result.verdict,
       usage: result.usage,
