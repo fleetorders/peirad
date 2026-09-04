@@ -76,7 +76,33 @@ it stays in sync with what the project declared. A point the model cannot
 ground in a quoted line vanishes from the output, so a lazy answer reads as an
 empty one, and an unquotable answer reads as `dropped: N`.
 
-### D-005 — precedent matches text deterministically and never acts
+### D-005 — Harness profiles: the invocation and the envelope travel as data
+
+**Scope:** repo · **Decided:** 2026-08-30
+
+How a harness is driven headless (flags, prompt position, output format) and
+how its reply is read back (single JSON envelope vs a JSONL event stream) vary
+per CLI family, so both live together on a named profile the manifest selects
+(`harnessProfile`, inferred from the harness name when absent — `codex` gets
+the codex shape, anything unknown gets the `-p … --output-format json`
+convention, which keeps existing manifests byte-compatible). `promptArgs` /
+`outputArgs` replace a profile's argv templates for a CLI no built-in profile
+fits; `{prompt}` is a standalone argument, never spliced into a flag.
+
+**Why:** hardcoding one CLI's dialect made `"harness": "codex"` unwirable —
+the spawn and the parsing are two halves of one contract, so they must change
+together or not at all. Defaulting unknown harnesses to the existing
+convention means a profile is only ever an opt-in, never a migration.
+
+**Consequences:** a profile also declares which probes can apply: under codex,
+`config-key` and `hook-registered` (JSON-settings probes) report `n/a` with
+the profile named rather than passing, and `flag-accepted` reads the help the
+profile points at (`exec --help`, not root `--help`). Verdicts and triage
+output carry the profile used, and the triage `usage` accounting is whatever
+the harness reports — codex reports token counts but neither model nor cost,
+so those render as absent rather than invented.
+
+### D-006 — precedent matches text deterministically and never acts
 
 **Scope:** repo · **Decided:** 2026-09-04
 

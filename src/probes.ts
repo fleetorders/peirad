@@ -13,8 +13,9 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { ProbeSpec } from "./manifest.js";
+import { resolveProfile } from "./harness-profiles.js";
 
-export type ProbeStatus = "pass" | "degraded" | "blocked";
+export type ProbeStatus = "pass" | "degraded" | "blocked" | "n/a";
 
 export interface ProbeResult {
   probe: string;
@@ -26,6 +27,8 @@ export interface ProbeContext {
   harness: string;
   /** Base dir that a probe's relative `file`/`glob` resolves against. */
   configDir: string;
+  /** Resolved profile name; inferred from the harness when absent. */
+  profileName?: string;
 }
 
 const fail = (spec: { critical?: boolean }): ProbeStatus =>
@@ -100,11 +103,38 @@ function getDotted(obj: unknown, key: string): unknown {
   return cur;
 }
 
+/** The label a probe reports itself under, mirroring the per-case labels. */
+function probeLabel(spec: ProbeSpec, harness: string): string {
+  switch (spec.type) {
+    case "command-exists":
+      return `command-exists(${harness})`;
+    case "version":
+      return "version";
+    case "flag-accepted":
+      return `flag-accepted(${spec.flags.join(",")})`;
+    case "config-key":
+      return `config-key(${spec.file})`;
+    case "transcript-field":
+      return `transcript-field(${spec.glob})`;
+    case "hook-registered":
+      return `hook-registered(${spec.event}~${spec.match})`;
+  }
+}
+
 export function runProbe(
   spec: ProbeSpec,
   ctx: ProbeContext,
   versionArgs: string[],
 ): ProbeResult {
+  const profile = resolveProfile(ctx.harness, ctx.profileName);
+  // A probe the harness family cannot express is declared, never passed.
+  if (profile.inapplicableProbes.includes(spec.type)) {
+    return {
+      probe: probeLabel(spec, ctx.harness),
+      status: "n/a",
+      detail: `no counterpart for harness profile "${profile.name}"`,
+    };
+  }
   switch (spec.type) {
     case "command-exists": {
       const ok = commandExists(ctx.harness);
@@ -121,7 +151,9 @@ export function runProbe(
       return { probe: "version", status: "pass", detail: v };
     }
     case "flag-accepted": {
-      const { out } = runHarness(ctx.harness, ["--help"]);
+      // Flags for a subcommand-shaped CLI live in that subcommand's help;
+      // the profile says which help to read.
+      const { out } = runHarness(ctx.harness, profile.helpArgs);
       const missing = spec.flags.filter((f) => !out.includes(f));
       return {
         probe: `flag-accepted(${spec.flags.join(",")})`,
