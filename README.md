@@ -150,6 +150,50 @@ json` emits `{verdict, confidence, reasoning, draft, dropped, assessed_at,
 harness, harness_version, usage, rubric}`. A `PEIRAD_HARNESS` environment
 variable overrides the manifest's harness, which is handy for testing.
 
+## Precedent — has this been ruled on before?
+
+`triage` asks whether drift matters; `precedent` asks whether it has already
+been decided. Give it a work-queue entry (markdown with a `#` title and a
+`from:` frontmatter line), a decisions ledger in the `### D-00n — title` +
+`**Scope:**` style, and any directories of resolved entries:
+
+```sh
+npx peirad precedent --entry queue/014-canary-drift.md --ledger DECISIONS.md --resolved queue/resolved --json
+```
+
+It derives the entry's class — the title's stem (up to the first `:` or
+`—`) plus its `from:` source, with dates, versions and parentheticals
+normalized away so recurrences collapse — then looks for prior rulings:
+resolved entries of the same class (a past `done:` line is a paste-ready
+resolution) and ledger entries whose title or scope covers the class.
+
+```json
+{
+  "schema": "precedent/1",
+  "matched": true,
+  "class": "canary drift · nightly sweep",
+  "source": "resolved",
+  "id": "013-canary-drift-2026-09-03.md",
+  "resolution": "re-ran the sweep twice — known clock skew; closed without changes",
+  "confidence": "high"
+}
+```
+
+Three properties keep it safe to run unattended. It is **read-only** — prints,
+never writes, never resolves anything itself. Matching is **deterministic
+text work** — no model call; the same inputs give the same answer, and every
+match names the prior artefact it rests on (`confidence: high` = a resolved
+sibling, `medium` = a ledger ruling only). And entries whose text trips a
+**rail keyword list** — credentials, guarded material, machine surfaces,
+registries, releases, outward actions — always come back `matched: false`
+with the rail named. The list is deliberately over-broad: a false "no match"
+costs a person a glance, a false "matched" would cost a wrong auto-resolution,
+so the tool fails toward the first.
+
+Exit `0` whether or not precedent matched — the answer is information, not a
+failure. Exit `2` when inputs are unreadable (missing entry, ledger or
+`--resolved` directory) or the entry has no `#` title to derive a class from.
+
 ## What it is NOT
 
 - **Not a sandbox or a security tool.** It reports whether your wiring still
