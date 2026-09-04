@@ -1,6 +1,6 @@
 {
   "name": "peirad",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A doctor for your agent integrations: contract-test hooks, config, flags and transcripts against the harness you actually have installed — so silent drift becomes a caught signal.",
   "type": "module",
   "bin": {
