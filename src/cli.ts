@@ -5,6 +5,7 @@ import path from "node:path";
 import { loadManifest } from "./manifest.js";
 import { runManifest, type Verdict } from "./doctor.js";
 import { triageCommand } from "./triage.js";
+import { precedentCommand } from "./precedent.js";
 
 function render(v: Verdict): void {
   const mark = (s: string): string =>
@@ -99,6 +100,35 @@ program
       usageLog?: string;
     }) => {
       process.exit(triageCommand(opts));
+    },
+  );
+
+program
+  .command("precedent")
+  .description(
+    "match a queue entry to prior rulings and emit the resolution to apply (read-only)",
+  )
+  .requiredOption(
+    "--entry <file>",
+    "queue entry (markdown) to find precedent for",
+  )
+  .requiredOption(
+    "--ledger <file>",
+    "decisions ledger (markdown) with D-entries",
+  )
+  .option(
+    "--resolved <dir...>",
+    "directories of resolved entries to search for siblings",
+  )
+  .option("--json", "emit the precedent as JSON")
+  .action(
+    (opts: {
+      entry: string;
+      ledger: string;
+      resolved?: string[];
+      json?: boolean;
+    }) => {
+      process.exit(precedentCommand(opts));
     },
   );
 
