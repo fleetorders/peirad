@@ -1,0 +1,22 @@
+{
+  "name": "example: codex integration",
+  "harness": "codex",
+  "probes": [
+    { "type": "command-exists", "critical": true },
+    { "type": "version" },
+    {
+      "type": "flag-accepted",
+      "flags": ["--json", "--output-last-message"]
+    },
+    {
+      "type": "config-key",
+      "file": "settings.json",
+      "keys": ["hooks.PreToolUse"]
+    },
+    {
+      "type": "transcript-field",
+      "glob": "sessions/**/*.jsonl",
+      "fields": ["type", "payload"]
+    }
+  ]
+}

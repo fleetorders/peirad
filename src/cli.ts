@@ -13,9 +13,11 @@ function render(v: Verdict): void {
       ? pc.green("ok  ")
       : s === "degraded"
         ? pc.yellow("DEGR")
-        : pc.red("BLOCK");
+        : s === "n/a"
+          ? pc.dim("n/a ")
+          : pc.red("BLOCK");
   process.stdout.write(
-    `${pc.bold(v.name)} — harness ${v.harness} ${pc.dim(v.version)} · ${v.date}\n`,
+    `${pc.bold(v.name)} — harness ${v.harness} (${v.profile}) ${pc.dim(v.version)} · ${v.date}\n`,
   );
   for (const r of v.results) {
     process.stdout.write(`  ${mark(r.status)}  ${r.probe}: ${r.detail}\n`);
@@ -53,7 +55,13 @@ program
     const configDir =
       opts.configDir ?? manifest.configDir ?? path.dirname(mfPath);
     const date = new Date().toISOString().slice(0, 10);
-    const verdict = runManifest(manifest, { configDir, date });
+    let verdict: Verdict;
+    try {
+      verdict = runManifest(manifest, { configDir, date });
+    } catch (e) {
+      process.stderr.write(`peirad: ${String(e)}\n`);
+      process.exit(2);
+    }
     if (opts.json)
       process.stdout.write(JSON.stringify(verdict, null, 2) + "\n");
     else render(verdict);

@@ -64,7 +64,8 @@ You declare probes; each runs against the live harness:
 | `transcript-field` | the fields your tool reads from transcripts are still present |
 
 A non-critical probe that drifts reports `degraded`; a probe marked `critical`
-reports `blocked`. Nothing throws — one drift never hides the next.
+reports `blocked`; a probe its [harness profile](#harness-profiles) says
+cannot apply reports `n/a`. Nothing throws — one drift never hides the next.
 
 ## How it works
 
@@ -101,6 +102,47 @@ Relative `file`/`glob` paths resolve against the manifest's directory, or pass
 `--config-dir` to point at your harness config location. Add `--json` for a
 machine-readable verdict.
 
+## Harness profiles
+
+Agent CLIs disagree on how to be driven headless: one takes `-p <prompt>
+--output-format json` and prints a single envelope; another wants a subcommand,
+the prompt as a positional, `--json` for an event stream, and reports usage at
+the end of the turn. A **harness profile** holds that shape — how to pass a
+one-shot prompt, how to ask for machine-readable output, how to read the reply
+and the token/cost numbers back out.
+
+Two are built in:
+
+- **`claude`** — `-p <prompt> --output-format json`; reply from the envelope's
+  `result`, usage from its `usage` block.
+- **`codex`** — `codex exec --skip-git-repo-check --sandbox read-only --color
+never <prompt> --json`; reply from the final `agent_message` event, usage
+  from `turn.completed`.
+
+The manifest selects one with `harnessProfile`; when it is absent, the harness
+name decides (`"harness": "codex"` gets the codex profile) and an unknown
+harness falls back to the claude convention. For a CLI neither profile fits,
+replace the argv templates directly — `promptArgs` must contain one `{prompt}`
+element (a standalone argument, never spliced into a flag), `outputArgs` is
+appended after it:
+
+```json
+{
+  "harness": "my-cli",
+  "harnessProfile": "codex",
+  "promptArgs": ["exec", "--no-banner", "{prompt}"],
+  "outputArgs": ["--json"],
+  "probes": []
+}
+```
+
+Profiles also say which probes can apply. The settings-file probes
+(`config-key`, `hook-registered`) assume a JSON settings layout that not every
+CLI family has; under a profile where they have no counterpart they report
+`n/a` with the profile named — declared inapplicable, never silently passed —
+and `flag-accepted` reads the help the profile points at (root `--help`, or a
+subcommand's `exec --help` for codex).
+
 ## Triage — does the drift matter?
 
 `run` tells you _that_ something drifted; `triage` tells you _whether it
@@ -114,7 +156,8 @@ npx peirad triage --alarm changelog.md --rubric changelog --manifest peirad.json
 ```
 
 The model call goes through the harness named in your manifest, headless (no
-tools, default model) — the same binary the probes exercise. `--rubric` takes
+tools, default model) — the same binary the probes exercise, invoked through
+the manifest's [harness profile](#harness-profiles). `--rubric` takes
 a markdown file, or the built-in `changelog`, which builds the rubric from your
 own manifest — "did anything I declared a dependency on change?" — listing
 every flag, settings key, hook and transcript field your probes rely on.
@@ -147,8 +190,9 @@ command (exit `2`) rather than pass silently.
 
 Exit `0` on any verdict — a verdict is information, not a failure. `--format
 json` emits `{verdict, confidence, reasoning, draft, dropped, assessed_at,
-harness, harness_version, usage, rubric}`. A `PEIRAD_HARNESS` environment
-variable overrides the manifest's harness, which is handy for testing.
+harness, harness_version, profile, usage, rubric}`. A `PEIRAD_HARNESS`
+environment variable overrides the manifest's harness binary (the profile
+still comes from the manifest), which is handy for testing.
 
 ## Precedent — has this been ruled on before?
 
@@ -207,9 +251,11 @@ failure. Exit `2` when inputs are unreadable (missing entry, ledger or
 ## Reference
 
 - **Verdict statuses:** `pass`, `degraded` (non-critical drift), `blocked`
-  (critical drift). Exit `0` when all pass, `1` on any drift.
-- **`--json`** emits the full verdict object (name, harness, version, date, and
-  per-probe results) for programmatic use.
+  (critical drift), `n/a` (the probe has no counterpart under the manifest's
+  harness profile — declared, never a pass). Exit `0` when all pass, `1` on
+  any drift.
+- **`--json`** emits the full verdict object (name, harness, profile, version,
+  date, and per-probe results) for programmatic use.
 
 Roadmap: [ROADMAP.md](ROADMAP.md) · Decisions: [DECISIONS.md](DECISIONS.md)
 
