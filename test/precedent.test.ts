@@ -2,12 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  parseEntry,
   classKey,
-  normalizeKeyPart,
-  parseLedger,
   detectRail,
   findPrecedent,
+  normalizeKeyPart,
+  parseEntry,
+  parseLedger,
+  parseRailWords,
   precedentCommand,
 } from "../src/precedent.js";
 
@@ -239,5 +240,20 @@ describe("precedentCommand", () => {
     });
     expect(code).toBe(2);
     expect(err).toContain("no `#` title");
+  });
+});
+
+describe("rail words from the caller", () => {
+  it("a caller-supplied word trips the guarded rail as a whole word, case-insensitively", () => {
+    const text = "# Nightly note: tidy the Zebra checkout\n\nfrom: nightly\n";
+    expect(detectRail(text)).toBeNull();
+    expect(detectRail(text, ["zebra"])).toBe("guarded");
+    expect(detectRail("# zebras roam\n", ["zebra"])).toBeNull();
+  });
+  it("parseRailWords skips blanks and comments", () => {
+    expect(parseRailWords("# private words\n\nzebra\n  yak \n")).toEqual([
+      "zebra",
+      "yak",
+    ]);
   });
 });

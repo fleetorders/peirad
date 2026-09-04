@@ -228,7 +228,7 @@ never writes, never resolves anything itself. Matching is **deterministic
 text work** — no model call; the same inputs give the same answer, and every
 match names the prior artefact it rests on (`confidence: high` = a resolved
 sibling, `medium` = a ledger ruling only). And entries whose text trips a
-**rail keyword list** — credentials, guarded material, machine surfaces,
+**rail keyword list** — credentials, guarded material (plus any words you pass with `--rail-words`), machine surfaces,
 registries, releases, outward actions — always come back `matched: false`
 with the rail named. The list is deliberately over-broad: a false "no match"
 costs a person a glance, a false "matched" would cost a wrong auto-resolution,

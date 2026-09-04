@@ -149,7 +149,7 @@ const RAILS: { name: string; test: RegExp }[] = [
   },
   {
     name: "guarded",
-    test: /\b(guarded|guarded|guarded-side|confidential|internal[- ]only)\b/i,
+    test: /\b(guarded|confidential|proprietary|internal[- ]only)\b/i,
   },
   {
     name: "machine-surface",
@@ -163,7 +163,33 @@ const RAILS: { name: string; test: RegExp }[] = [
   },
 ];
 
-export function detectRail(text: string): string | null {
+/**
+ * Extra words for the guarded rail, supplied by the caller (one per line, `#` comments
+ * allowed): a fleet's own vocabulary for material that must never auto-resolve stays in
+ * the fleet, never in this tool. Matched as whole words, case-insensitively.
+ */
+export function parseRailWords(text: string): string[] {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function detectRail(
+  text: string,
+  extraWords: string[] = [],
+): string | null {
+  if (extraWords.length) {
+    const extra = new RegExp(
+      `\\b(${extraWords.map(escapeRe).join("|")})\\b`,
+      "i",
+    );
+    if (extra.test(text)) return "guarded";
+  }
   for (const rail of RAILS) {
     if (rail.test.test(text)) return rail.name;
   }
@@ -205,6 +231,7 @@ export function findPrecedent(
   entryText: string,
   ledgerText: string,
   siblings: SiblingInput[],
+  extraRailWords: string[] = [],
 ): Omit<PrecedentResult, "entry" | "checked_at"> {
   const entry = parseEntry(entryText);
   if (!entry.title) {
@@ -213,7 +240,7 @@ export function findPrecedent(
   const key = classKey(entry);
   const base = { schema: "precedent/1" as const, class: key.display };
 
-  const rail = detectRail(entry.text);
+  const rail = detectRail(entry.text, extraRailWords);
   if (rail) {
     return {
       ...base,
@@ -307,6 +334,8 @@ export interface PrecedentCliOptions {
   entry: string;
   ledger: string;
   resolved?: string[];
+  /** Extra whole-word keywords for the guarded rail, one per line. */
+  railWords?: string;
   json?: boolean;
 }
 
@@ -349,7 +378,18 @@ export function precedentCommand(opts: PrecedentCliOptions): number {
   }
   let found: Omit<PrecedentResult, "entry" | "checked_at">;
   try {
-    found = findPrecedent(entryText, ledgerText, siblings);
+    let railWords: string[] = [];
+    if (opts.railWords) {
+      try {
+        railWords = parseRailWords(fs.readFileSync(opts.railWords, "utf8"));
+      } catch {
+        process.stderr.write(
+          `peirad: rail words file not found: ${opts.railWords}\n`,
+        );
+        return 2;
+      }
+    }
+    found = findPrecedent(entryText, ledgerText, siblings, railWords);
   } catch (e) {
     process.stderr.write(`peirad: ${String(e)}\n`);
     return 2;

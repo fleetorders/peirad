@@ -120,12 +120,17 @@ program
     "--resolved <dir...>",
     "directories of resolved entries to search for siblings",
   )
+  .option(
+    "--rail-words <file>",
+    "extra whole-word keywords for the guarded rail, one per line (a fleet's own vocabulary stays in the fleet)",
+  )
   .option("--json", "emit the precedent as JSON")
   .action(
     (opts: {
       entry: string;
       ledger: string;
       resolved?: string[];
+      railWords?: string;
       json?: boolean;
     }) => {
       process.exit(precedentCommand(opts));

@@ -50,7 +50,7 @@ commit message may carry:
 - **R1 — machine/environment:** absolute paths, hostnames, OS/tool versions of
   the author's setup, local ports/dirs, shell config. Write about the _user's_
   environment, never the author's.
-- **R2 — guarded-side/third-party:** any guarded-side, client, or internal project name,
+- **R2 — third-party:** any client or internal project name,
   ticket id, internal URL, or observation about another organisation's repos.
 - **R3 — identity/credentials:** git identity rules, emails, tokens, keys,
   publishing mechanics. Author metadata belongs in `LICENSE`/`package.json`.
