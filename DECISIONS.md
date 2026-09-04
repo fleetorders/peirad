@@ -75,3 +75,35 @@ the engine — the built-in `changelog` rubric is derived from the manifest, so
 it stays in sync with what the project declared. A point the model cannot
 ground in a quoted line vanishes from the output, so a lazy answer reads as an
 empty one, and an unquotable answer reads as `dropped: N`.
+
+### D-005 — precedent matches text deterministically and never acts
+
+**Scope:** repo · **Decided:** 2026-09-04
+
+`peirad precedent` matches a queue entry to prior rulings by text only — no
+harness, no model call. The entry's class key is its title stem (the first
+`#` heading up to the first `:` or `—`) plus its `from:` frontmatter
+source, both normalized — digits, parentheticals and markdown marks stripped —
+so recurrences of the same alarm from the same recurring source collapse to
+one class. Resolved siblings (same class, carrying a `done:` line) outrank
+ledger rulings, because a past resolution is paste-ready where a ruling is a
+rationale; among siblings the last by filename sort is named. Ledger coverage
+means the stem appears in the ruling's title or `**Scope:**` line. Entries
+whose text trips a fixed rail keyword list — credentials, corp, machine
+surface, registry, release, outward action — always report `matched: false`
+with the rail named.
+
+**Why:** precedent exists so a routine, already-ruled alarm can be closed with
+a receipt instead of re-litigated. That is only safe when the match is
+reproducible (same inputs, same answer, no model in the loop), when the
+command is read-only, and when it errs toward "no match": a false "no match"
+costs a person a glance, a false "matched" costs a wrong auto-resolution, so
+the rail list is deliberately over-broad and every match needs a quoteable
+prior artefact.
+
+**Consequences:** the class key is only as good as the queue's title/from
+discipline — two entries a person would call the same class but titles
+differently will not match, and that failure reads as "no precedent found",
+never as a wrong match. Confidence is positional, not semantic: `high` means
+a sibling resolution exists, `medium` means only a ruling. The rail list is
+code; widening it is an engine change and a new decision, not configuration.

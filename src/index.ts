@@ -13,3 +13,20 @@ export type {
   TriageResult,
   TriageOutcome,
 } from "./triage.js";
+export {
+  parseEntry,
+  normalizeKeyPart,
+  classKey,
+  parseLedger,
+  detectRail,
+  findPrecedent,
+  precedentCommand,
+} from "./precedent.js";
+export type {
+  ParsedEntry,
+  ClassKey,
+  LedgerEntry,
+  SiblingInput,
+  PrecedentResult,
+  PrecedentCliOptions,
+} from "./precedent.js";
