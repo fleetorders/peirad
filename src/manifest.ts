@@ -22,6 +22,15 @@ export type ProbeSpec =
       event: string;
       match: string;
       critical?: boolean;
+    }
+  | {
+      type: "script";
+      /** Repo-relative path to an executable script (resolved against configDir). */
+      script: string;
+      args?: string[];
+      /** Kill the script after this many ms (default 30_000). */
+      timeoutMs?: number;
+      critical?: boolean;
     };
 
 export interface Manifest {
