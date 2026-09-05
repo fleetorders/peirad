@@ -133,6 +133,7 @@ differently will not match, and that failure reads as "no precedent found",
 never as a wrong match. Confidence is positional, not semantic: `high` means
 a sibling resolution exists, `medium` means only a ruling. The rail list is
 code; widening it is an engine change and a new decision, not configuration.
+
 ### D-007 — A `script` probe runs repo code, and fails open on anything but its verdict
 
 **Scope:** repo · **Decided:** 2026-09-01
