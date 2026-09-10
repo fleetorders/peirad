@@ -4,12 +4,20 @@
  * so "does it still hold?" has an answer with a timestamp, not a shrug.
  */
 import type { Manifest } from "./manifest.js";
-import { runProbe, harnessVersion, type ProbeResult } from "./probes.js";
+import {
+  runProbe,
+  harnessVersion,
+  resolveBinary,
+  type ProbeResult,
+} from "./probes.js";
 import { resolveProfile } from "./harness-profiles.js";
 
 export interface Verdict {
   name: string;
   harness: string;
+  /** Resolved path of the harness binary (`command -v`); omitted when the
+   * harness is not resolvable on PATH. */
+  path?: string;
   /** Invocation profile the probes ran under ("claude", "codex", …). */
   profile: string;
   version: string;
@@ -37,10 +45,12 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
     manifest.harnessProfile,
     manifest,
   );
+  const harnessPath = resolveBinary(manifest.harness);
   const ctx = {
     harness: manifest.harness,
     configDir,
     profileName: profile.name,
+    harnessPath,
   };
 
   const version = harnessVersion(manifest.harness, versionArgs);
@@ -59,6 +69,7 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
   return {
     name: manifest.name ?? manifest.harness,
     harness: manifest.harness,
+    path: harnessPath ?? undefined,
     profile: profile.name,
     version,
     date: opts.date,

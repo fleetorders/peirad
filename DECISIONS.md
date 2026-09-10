@@ -160,3 +160,49 @@ verdict as every built-in probe; conversely, anyone running a foreign
 manifest is executing that repo's code by design. The n/a register doubles as
 the script's own error channel, so a genuinely broken integration and a
 broken probe are always distinguishable in the output.
+
+### D-008 — Never exit without a verdict: an unknown probe type is `n/a`, naming the engine version
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+A manifest may name a probe type the installed engine does not know — a
+manifest written for a newer release, run by an older install. That probe
+renders `n/a` with the type and the peirad version in the detail line; it
+never throws, and the run still prints its dated verdict. Loading validates
+the shape of every probe (an object with a string `type`) and nothing more:
+an unknown type name is a run-time `n/a`, not a load error. The same rule
+reaches the triage caller: a harness that exits non-zero is reported with its
+name, its version and its own stderr, never as a bare exit number.
+
+**Why:** the 0.4.0 build died with a raw `TypeError` and no verdict on exactly
+this input, and a scheduled caller reported "harness exited 1" with the cause
+thrown away. A checker whose pitch is catching silent failure cannot itself
+fail without saying what it saw. Fail-open is the contract the `script` probe
+already speaks (D-007): a probe that cannot deliver a verdict says so, and
+`n/a` never counts as drift.
+
+**Consequences:** a newer manifest degrades gracefully on an older engine —
+the unknown probes read as declared-but-unchecked, which is the honest
+answer. A `validate` subcommand (strict, pre-spawn) remains open as a surface
+decision; the loader's shape check and the `n/a` rendering cover the crash.
+
+### D-009 — Profile inapplicability follows the file shape, not the harness name
+
+**Scope:** repo · **Decided:** 2026-09-11 · **Supersedes** the codex consequence of D-005
+
+D-005 declared `config-key` and `hook-registered` inapplicable under the codex
+profile because that CLI's config was TOML with no JSON hooks. Codex now keeps
+hooks in a JSON file in the same `hooks.<Event>[].hooks[].command` shape the
+probes already parse, so the constant was wrong in fact and the probes apply;
+a codex manifest names that file. `inapplicableProbes` stays as a mechanism
+for a family that genuinely has no JSON surface.
+
+**Why:** the probes are generic JSON readers; what makes them applicable is a
+JSON file to read, not which harness wrote it. Declaring a check impossible
+that the machine can perform is the opposite failure to the one D-005 guarded
+against (a silent pass), and just as silent.
+
+**Consequences:** a codex manifest that names a settings file which does not
+exist now reports `degraded`/`blocked` ("file not found"), not `n/a` — which
+is correct, since the manifest declared a dependency the install does not
+carry. Tests that asserted the old `n/a` flip to assert the file-shape rule.

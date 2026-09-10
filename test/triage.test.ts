@@ -15,6 +15,7 @@ import { resolveProfile } from "../src/harness-profiles.js";
 const here = (f: string): string => fileURLToPath(new URL(f, import.meta.url));
 const FAKE = here("./fake-harness.sh");
 const NOUSAGE = here("./fake-harness-nousage.sh");
+const FAKEEXIT1 = here("./fake-harness-exit1.sh");
 const FAKECODEX = here("./fake-codex-harness.sh");
 const ALARM = fs.readFileSync(here("./fixtures/changelog-alarm.md"), "utf8");
 
@@ -127,6 +128,21 @@ describe("assessAlarm", () => {
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
     expect(outcome.reason).toContain("timed out after 1s");
+  });
+
+  it("carries stderr and the version when the harness exits non-zero", () => {
+    const outcome = assessAlarm({
+      alarm: ALARM,
+      rubric: "# rubric",
+      harness: FAKEEXIT1,
+      timeoutSeconds: 20,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.reason).toContain("exited 1");
+    expect(outcome.reason).toContain("fake-harness-exit1 1.2.3");
+    expect(outcome.reason).toContain("not logged in");
+    expect(outcome.reason).toContain("run `claude login`");
   });
 });
 
@@ -292,7 +308,9 @@ describe("triageCommand", () => {
       timeout: "20",
     });
     expect(code).toBe(2);
-    expect(err).toContain("pre-assessment unavailable: harness exited 1");
+    expect(err).toContain(
+      'pre-assessment unavailable: harness "/usr/bin/false" (unknown) exited 1 (no stderr)',
+    );
   });
 
   it("exits 2 on a missing alarm or rubric file", () => {

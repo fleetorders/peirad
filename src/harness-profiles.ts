@@ -159,9 +159,11 @@ const codexProfile: HarnessProfile = {
   ],
   outputArgs: ["--json"],
   helpArgs: ["exec", "--help"],
-  // Codex config is TOML (~/.codex/config.toml) and has no JSON settings
-  // hooks, so the settings-file probes have no counterpart there.
-  inapplicableProbes: ["config-key", "hook-registered"],
+  // Codex keeps its hooks in a JSON file (`hooks.json` beside its config) in
+  // the same `hooks.<Event>[].hooks[].command` shape the settings probes
+  // already read, so `config-key` and `hook-registered` apply — a manifest
+  // points `file` at that JSON. Only `config.toml` (TOML) is out of reach.
+  inapplicableProbes: [],
   parseOutput(stdout) {
     let reply: string | null = null;
     let usage: HarnessUsage | null = null;

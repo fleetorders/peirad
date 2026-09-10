@@ -10,10 +10,24 @@
  * every result so one drift never hides the next.
  */
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 import type { ProbeSpec } from "./manifest.js";
 import { resolveProfile } from "./harness-profiles.js";
+
+/** This engine's own version, read from package.json at run time — resolves
+ * from both src/ (tests) and dist/ (the built CLI) without bundling it in. */
+const ENGINE_VERSION: string = (() => {
+  try {
+    const pkg = createRequire(import.meta.url)("../package.json") as {
+      version?: string;
+    };
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+})();
 
 export type ProbeStatus = "pass" | "degraded" | "blocked" | "n/a";
 
@@ -29,6 +43,9 @@ export interface ProbeContext {
   configDir: string;
   /** Resolved profile name; inferred from the harness when absent. */
   profileName?: string;
+  /** Resolved binary path (`command -v`), taken once by the runner; the
+   * command-exists probe re-resolves when a direct caller omits it. */
+  harnessPath?: string | null;
 }
 
 const fail = (spec: { critical?: boolean }): ProbeStatus =>
@@ -50,41 +67,65 @@ export function harnessVersion(harness: string, versionArgs: string[]): string {
   return out.trim().split("\n")[0]?.trim() ?? "unknown";
 }
 
-function commandExists(harness: string): boolean {
+/** `command -v <harness>`: the resolved binary path, or null when off PATH. */
+export function resolveBinary(harness: string): string | null {
   const r = spawnSync("command", ["-v", harness], {
     shell: true,
     encoding: "utf8",
   });
-  return r.status === 0 && (r.stdout ?? "").trim().length > 0;
+  if (r.status !== 0) return null;
+  const p = (r.stdout ?? "").trim();
+  return p.length > 0 ? p : null;
 }
 
-// Minimal glob: supports "dir/**/*.ext" and "dir/*.ext"; returns the first match.
-function firstMatch(base: string, pattern: string): string | null {
+// Minimal glob: supports "dir/**/*.ext" (recursive) and "dir/*.ext" (one
+// level); returns EVERY match so the caller samples by recency, not by the
+// order a directory listing happened to surface.
+function allMatches(base: string, pattern: string): string[] {
   const recursive = pattern.includes("**");
   const ext = path.extname(pattern);
   const root = path.join(base, pattern.split("*")[0]!.replace(/\/$/, ""));
-  const walk = (dir: string, depth: number): string | null => {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
-      return null;
+      return;
     }
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      const full = path.join(dir, e.name);
-      if (e.isFile() && (!ext || e.name.endsWith(ext))) return full;
-    }
-    if (recursive || depth === 0) {
-      for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-        if (e.isDirectory()) {
-          const found = walk(path.join(dir, e.name), depth + 1);
-          if (found) return found;
-        }
+      if (e.isFile() && (!ext || e.name.endsWith(ext))) {
+        found.push(path.join(dir, e.name));
       }
     }
-    return null;
+    if (recursive) {
+      for (const e of entries) {
+        if (e.isDirectory()) walk(path.join(dir, e.name));
+      }
+    }
   };
-  return walk(root, 0);
+  walk(root);
+  return found;
+}
+
+/** The match with the newest mtime: the transcript the current build wrote,
+ * not whichever file sorts first. Ties keep the first-listed (name order)
+ * file, so the pick stays deterministic. */
+function newestMatch(
+  base: string,
+  pattern: string,
+): { file: string; mtime: Date } | null {
+  let best: { file: string; mtime: Date } | null = null;
+  for (const file of allMatches(base, pattern)) {
+    let mtime: Date;
+    try {
+      mtime = fs.statSync(file).mtime;
+    } catch {
+      continue; // vanished between listing and stat — not a verdict
+    }
+    if (!best || mtime > best.mtime) best = { file, mtime };
+  }
+  return best;
 }
 
 function getDotted(obj: unknown, key: string): unknown {
@@ -120,12 +161,14 @@ function probeLabel(spec: ProbeSpec, harness: string): string {
       return `hook-registered(${spec.event}~${spec.match})`;
     case "script":
       return `script(${[spec.script, ...(spec.args ?? [])].join(" ")})`;
+    default:
+      return (spec as { type: string }).type;
   }
 }
 
-/** Fold a script's output into one reportable line: leading non-empty lines,
+/** Fold raw process output into one reportable line: leading non-empty lines,
  * joined with " · ", capped so a chatty finding can't wreck the render. */
-function fold(out: string, maxLines = 3, maxChars = 300): string {
+export function fold(out: string, maxLines = 3, maxChars = 300): string {
   const joined = out
     .split("\n")
     .map((l) => l.trim())
@@ -151,12 +194,15 @@ export function runProbe(
   }
   switch (spec.type) {
     case "command-exists": {
-      const ok = commandExists(ctx.harness);
+      const resolved =
+        ctx.harnessPath !== undefined
+          ? ctx.harnessPath
+          : resolveBinary(ctx.harness);
       return {
         probe: `command-exists(${ctx.harness})`,
-        status: ok ? "pass" : fail(spec),
-        detail: ok
-          ? `${ctx.harness} is on PATH`
+        status: resolved ? "pass" : fail(spec),
+        detail: resolved
+          ? `${ctx.harness} is on PATH (${resolved})`
           : `${ctx.harness} not found on PATH`,
       };
     }
@@ -168,7 +214,13 @@ export function runProbe(
       // Flags for a subcommand-shaped CLI live in that subcommand's help;
       // the profile says which help to read.
       const { out } = runHarness(ctx.harness, profile.helpArgs);
-      const missing = spec.flags.filter((f) => !out.includes(f));
+      // Whole-token match only: the help text is split on whitespace and the
+      // punctuation that glues flags to placeholders, so "--allowed" cannot
+      // pass against "--allowedTools" nor "-p" against "--print".
+      const tokens = new Set(
+        out.split(/[\s,=\[\]<>|()]+/).filter((t) => t.length > 0),
+      );
+      const missing = spec.flags.filter((f) => !tokens.has(f));
       return {
         probe: `flag-accepted(${spec.flags.join(",")})`,
         status: missing.length === 0 ? "pass" : fail(spec),
@@ -210,14 +262,18 @@ export function runProbe(
       };
     }
     case "transcript-field": {
-      const file = firstMatch(ctx.configDir, spec.glob);
-      if (!file) {
+      const match = newestMatch(ctx.configDir, spec.glob);
+      if (!match) {
         return {
           probe: `transcript-field(${spec.glob})`,
           status: fail(spec),
           detail: `no file matched ${spec.glob}`,
         };
       }
+      const { file, mtime } = match;
+      // Name the sample — which file was read and how fresh it is — so a
+      // verdict can be checked against the transcript it describes.
+      const sampled = `${path.relative(ctx.configDir, file)} (mtime ${mtime.toISOString().slice(0, 10)})`;
       // Transcript JSONL mixes record types (summary/meta headers, then user and
       // assistant messages), so the declared fields may legitimately be absent
       // from line 1. Scan a sample and pass if ANY record carries all of them —
@@ -248,7 +304,7 @@ export function runProbe(
           return {
             probe: `transcript-field(${spec.glob})`,
             status: "pass",
-            detail: `fields present (${spec.fields.join(", ")}) on a record within the first ${lines.length}`,
+            detail: `fields present (${spec.fields.join(", ")}) on a record within the first ${lines.length} — sampled ${sampled}`,
           };
         }
       }
@@ -258,7 +314,7 @@ export function runProbe(
         detail:
           scanned === 0
             ? `no JSON records in the first ${lines.length} lines`
-            : `schema drift — no record in the first ${scanned} has all of: ${spec.fields.join(", ")}`,
+            : `schema drift — no record in the first ${scanned} has all of: ${spec.fields.join(", ")} — sampled ${sampled}`,
       };
     }
     case "hook-registered": {
@@ -345,6 +401,17 @@ export function runProbe(
       return na(
         `exit ${r.status}${out.trim() ? `: ${fold(out, 1)}` : " — no verdict"}`,
       );
+    }
+    default: {
+      // An unknown type name means a newer manifest met an older engine:
+      // declared n/a, never a crash — the run still delivers a verdict that
+      // names what it did not understand (mirrors the script probe's fail-open).
+      const type = (spec as { type: string }).type;
+      return {
+        probe: type,
+        status: "n/a",
+        detail: `unknown probe type "${type}" — not understood by peirad ${ENGINE_VERSION}; upgrade peirad or remove the probe`,
+      };
     }
   }
 }

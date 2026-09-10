@@ -61,6 +61,20 @@ export function loadManifest(path: string): Manifest {
   if (!m.harness || !Array.isArray(m.probes)) {
     throw new Error(`invalid manifest ${path}: needs "harness" and "probes"`);
   }
+  // Every probe must at least carry a string type — an unknown type NAME is
+  // valid (the engine reports it n/a, fail-open), but a shapeless probe can
+  // never be run or attributed, so it fails at load.
+  m.probes.forEach((p, i) => {
+    if (
+      !p ||
+      typeof p !== "object" ||
+      typeof (p as { type?: unknown }).type !== "string"
+    ) {
+      throw new Error(
+        `invalid manifest ${path}: probes[${i}] needs a string "type"`,
+      );
+    }
+  });
   for (const key of ["harnessProfile"] as const) {
     if (m[key] !== undefined && typeof m[key] !== "string") {
       throw new Error(`invalid manifest ${path}: "${key}" must be a string`);

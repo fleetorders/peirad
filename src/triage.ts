@@ -18,7 +18,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { loadManifest, type Manifest } from "./manifest.js";
-import { harnessVersion } from "./probes.js";
+import { harnessVersion, fold } from "./probes.js";
 import {
   expandArgs,
   parseJsonLenient,
@@ -157,11 +157,19 @@ export function assessAlarm(opts: AssessOptions): TriageOutcome {
     const why =
       e.code === "ETIMEDOUT"
         ? `harness call timed out after ${timeoutSeconds}s`
-        : `harness "${harness}" not runnable (${e.code ?? e.message})`;
+        : `harness "${harness}" (${version}) not runnable (${e.code ?? e.message})`;
     return { ok: false, reason: why };
   }
   if (r.status !== 0) {
-    return { ok: false, reason: `harness exited ${r.status}` };
+    // Carry the cause: a bare exit number cannot be acted on, and the
+    // harness's own stderr is the most specific thing available.
+    const stderr = (r.stderr ?? "").trim();
+    return {
+      ok: false,
+      reason: stderr
+        ? `harness "${harness}" (${version}) exited ${r.status}: ${fold(stderr)}`
+        : `harness "${harness}" (${version}) exited ${r.status} (no stderr)`,
+    };
   }
   // The profile unwraps the harness's own envelope/stream shape; everything
   // downstream sees one reply string plus whatever usage it reported.
