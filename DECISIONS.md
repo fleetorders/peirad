@@ -206,3 +206,31 @@ against (a silent pass), and just as silent.
 exist now reports `degraded`/`blocked` ("file not found"), not `n/a` — which
 is correct, since the manifest declared a dependency the install does not
 carry. Tests that asserted the old `n/a` flip to assert the file-shape rule.
+
+### D-010 — Value is measured by triggered runs against real dependencies
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+A manifest that nobody runs is a declaration, not a check, and a manifest
+that only asserts the harness binary exists tests nothing that could drift.
+From 2026-09-11 the tool's value is judged only on runs fired by a trigger — a
+git pre-push hook, CI, or a schedule — in projects whose manifest declares a
+dependency the harness could actually break: a transcript field read, a hook
+registered on an event, a flag passed. The first review of such runs is dated
+2026-09-25.
+
+**Why:** two things had been mistaken for adoption: a manifest present in a
+repo, and a `doctor` script defined in its package.json — with nothing calling
+it. Neither produces a verdict anyone reads. Evidence of value is a run that
+printed a line which changed what someone did; that needs a trigger and a real
+dependency behind it, not a wider roll-out.
+
+**Consequences:** a drifted contract blocks a push where the hook runs until
+the manifest or the wiring is fixed — that is the signal, not a nuisance to
+silence. A `hook-registered` probe presupposes the hook is installed on the
+machine that runs the check; an uninstalled integration is drift by definition
+and is not exempted with a non-blocking run. The codex-profile applicability
+fix (D-009) reaches codex manifests only after the next release; until then
+those probes read `n/a` on the published build. Review question on 2026-09-25:
+did any triggered run print something worth reading, and was anything caught
+that nothing else would have.
