@@ -5,6 +5,7 @@
  */
 import fs from "node:fs";
 import type { ArrayMerge, SettingsLayer } from "./harness-profiles.js";
+import type { HarnessReport } from "./reports.js";
 
 /**
  * Where a settings probe looks: the single file it names, or the merged stack
@@ -73,6 +74,19 @@ export type ProbeSpec =
       critical?: boolean;
     }
   | {
+      type: "harness-reports";
+      /** A report the harness profile (or the manifest) declares: "mcp", "doctor", … */
+      report: string;
+      /**
+       * Facts the report must carry. Each entry is a set of field → value
+       * that at least one record must match entirely, e.g.
+       * `{ "name": "my-server", "status": "Connected" }`. Absent, the probe
+       * only asserts that the report can still be read.
+       */
+      find?: Record<string, unknown>[];
+      critical?: boolean;
+    }
+  | {
       type: "script";
       /** Repo-relative path to an executable script (resolved against configDir). */
       script: string;
@@ -113,6 +127,12 @@ export interface Manifest {
    * registered hook), "override" where the nearest scope replaces the rest.
    */
   settingsArrays?: ArrayMerge;
+  /**
+   * Reports the harness can produce, added to — or replacing, by name — the
+   * ones its profile declares. For a harness the profiles do not know, or a
+   * report they do not carry.
+   */
+  reports?: Record<string, HarnessReport>;
   probes: ProbeSpec[];
 }
 
@@ -134,6 +154,7 @@ export const PROBE_FIELDS: Record<string, readonly string[]> = {
   "transcript-field": ["glob", "fields"],
   "hook-registered": ["file", "event", "match", "scope"],
   script: ["script", "args", "timeoutMs"],
+  "harness-reports": ["report", "find"],
 };
 
 /** Manifest-level keys this build understands. */
@@ -147,6 +168,7 @@ export const MANIFEST_FIELDS: readonly string[] = [
   "configDir",
   "settingsLayers",
   "settingsArrays",
+  "reports",
   "probes",
 ];
 

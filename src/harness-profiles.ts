@@ -8,6 +8,7 @@
  * `settingsLayers` overrides where that CLI keeps its settings stack.
  */
 import type { Manifest } from "./manifest.js";
+import type { HarnessReport } from "./reports.js";
 
 /**
  * Token/cost accounting the harness reported alongside its reply, normalized
@@ -84,6 +85,12 @@ export interface HarnessProfile {
    * where the nearest scope replaces the others outright.
    */
   settingsArrays: ArrayMerge;
+  /**
+   * Reports this harness produces about itself, by name, and how to read
+   * each — the facts a `harness-reports` probe asserts come from here. A
+   * report the harness does not have is simply not declared.
+   */
+  reports: Record<string, HarnessReport>;
   /** Turn the harness's stdout into the reply text + usage. */
   parseOutput(stdout: string): ProfileParse;
 }
@@ -171,6 +178,23 @@ const claudeProfile: HarnessProfile = {
     },
   ],
   settingsArrays: "concat",
+  // Both reports print text, so each line is read with a pattern. The server
+  // list health-checks approved servers as it prints them; "No MCP servers
+  // configured" is its valid empty answer, not a changed shape.
+  reports: {
+    mcp: {
+      args: ["mcp", "list"],
+      format: "lines",
+      pattern:
+        "^(?<name>\\S.*?): (?<target>.*?) - (?<mark>\\S+) (?<status>.+)$",
+      emptyPattern: "No MCP servers configured",
+    },
+    doctor: {
+      args: ["doctor"],
+      format: "lines",
+      pattern: "^(?<key>[A-Z][^:]*): (?<value>.+)$",
+    },
+  },
   parseOutput(stdout) {
     let envelope: unknown;
     try {
@@ -219,6 +243,13 @@ const codexProfile: HarnessProfile = {
   // it just answers it with one file, and says so.
   settingsLayers: [{ name: "user", path: "{home}/.codex/hooks.json" }],
   settingsArrays: "concat",
+  // Both reports have a JSON form. The doctor keys its checks by id, so the
+  // records are that object's values; each carries its own `id`.
+  reports: {
+    mcp: { args: ["mcp", "list", "--json"], format: "json" },
+    doctor: { args: ["doctor", "--json"], format: "json", records: "checks" },
+    "doctor-summary": { args: ["doctor", "--json"], format: "json" },
+  },
   parseOutput(stdout) {
     let reply: string | null = null;
     let usage: HarnessUsage | null = null;
@@ -287,7 +318,11 @@ export function resolveProfile(
   harnessProfile?: string,
   overrides?: Pick<
     Manifest,
-    "promptArgs" | "outputArgs" | "settingsLayers" | "settingsArrays"
+    | "promptArgs"
+    | "outputArgs"
+    | "settingsLayers"
+    | "settingsArrays"
+    | "reports"
   >,
 ): HarnessProfile {
   const name = harnessProfile ?? (harness in PROFILES ? harness : "claude");
@@ -310,6 +345,7 @@ export function resolveProfile(
     outputArgs,
     settingsLayers: overrides?.settingsLayers ?? base.settingsLayers,
     settingsArrays: overrides?.settingsArrays ?? base.settingsArrays,
+    reports: { ...base.reports, ...(overrides?.reports ?? {}) },
   };
 }
 

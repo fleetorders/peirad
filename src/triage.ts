@@ -129,6 +129,20 @@ export function buildChangelogRubric(manifest: Manifest): string {
         `- A helper program the integration shells out to must stay installed: ${p.command}`,
       );
       declared++;
+    } else if (p.type === "harness-reports" && p.find?.length) {
+      lines.push(
+        `- The harness's own "${p.report}" report must keep showing: ${p.find
+          .map((f) =>
+            Object.entries(f)
+              .map(
+                ([k, v]) =>
+                  `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`,
+              )
+              .join(", "),
+          )
+          .join("; ")}`,
+      );
+      declared++;
     } else if (p.type === "hook-registered") {
       lines.push(
         `- A hook on event ${p.event} matching "${p.match}" must stay registered`,

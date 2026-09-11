@@ -24,6 +24,14 @@ import {
   type HarnessProfile,
   type SettingsLayer,
 } from "./harness-profiles.js";
+import { deepEqual, fold, getDotted, show } from "./values.js";
+import {
+  describeEntry,
+  describeMiss,
+  evaluateFind,
+  readReport,
+  type HarnessReport,
+} from "./reports.js";
 import {
   describeLayers,
   effectiveSettings,
@@ -48,6 +56,8 @@ export const ENGINE_VERSION: string = (() => {
     return "unknown";
   }
 })();
+
+export { fold };
 
 export type ProbeStatus = "pass" | "degraded" | "blocked" | "n/a";
 
@@ -76,6 +86,9 @@ export interface ProbeContext {
   settingsLayers?: SettingsLayer[];
   /** How that stack combines list values; see `ProbeContext.settingsLayers`. */
   settingsArrays?: ArrayMerge;
+  /** The reports a `harness-reports` probe may name — the profile's, with the
+   * manifest's own declarations folded in by the runner. */
+  reports?: Record<string, HarnessReport>;
 }
 
 const fail = (spec: { critical?: boolean }): ProbeStatus =>
@@ -166,57 +179,6 @@ export function newestMatch(
     if (!best || mtime > best.mtime) best = { file, mtime };
   }
   return best;
-}
-
-function getDotted(obj: unknown, key: string): unknown {
-  let cur: unknown = obj;
-  for (const part of key.split(".")) {
-    if (
-      cur &&
-      typeof cur === "object" &&
-      part in (cur as Record<string, unknown>)
-    ) {
-      cur = (cur as Record<string, unknown>)[part];
-    } else {
-      return undefined;
-    }
-  }
-  return cur;
-}
-
-/** Deep JSON equality — an expected value is met exactly, not approximately.
- * A caller that wants to assert one field of an object points at that field
- * with a dotted key instead of half-matching the whole object. */
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
-      return false;
-    }
-    return a.every((x, i) => deepEqual(x, b[i]));
-  }
-  if (a && b && typeof a === "object" && typeof b === "object") {
-    const ao = a as Record<string, unknown>;
-    const bo = b as Record<string, unknown>;
-    const ka = Object.keys(ao);
-    return (
-      ka.length === Object.keys(bo).length &&
-      ka.every((k) => k in bo && deepEqual(ao[k], bo[k]))
-    );
-  }
-  return false;
-}
-
-/** A config value as it appears in a verdict line: JSON, kept short enough
- * that a nested object cannot push the finding off the edge of the report. */
-function show(value: unknown, maxChars = 60): string {
-  let text: string;
-  try {
-    text = JSON.stringify(value) ?? String(value);
-  } catch {
-    text = String(value);
-  }
-  return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
 }
 
 /**
@@ -323,21 +285,11 @@ function probeLabel(spec: ProbeSpec, harness: string): string {
       return `hook-registered(${spec.event}~${spec.match})`;
     case "script":
       return `script(${[spec.script, ...(spec.args ?? [])].join(" ")})`;
+    case "harness-reports":
+      return `harness-reports(${spec.report})`;
     default:
       return (spec as { type: string }).type;
   }
-}
-
-/** Fold raw process output into one reportable line: leading non-empty lines,
- * joined with " · ", capped so a chatty finding can't wreck the render. */
-export function fold(out: string, maxLines = 3, maxChars = 300): string {
-  const joined = out
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .slice(0, maxLines)
-    .join(" · ");
-  return joined.length > maxChars ? `${joined.slice(0, maxChars)}…` : joined;
 }
 
 /**
@@ -381,6 +333,7 @@ function runKnownProbe(
     ...named,
     settingsLayers: ctx.settingsLayers ?? named.settingsLayers,
     settingsArrays: ctx.settingsArrays ?? named.settingsArrays,
+    reports: ctx.reports ?? named.reports,
   };
   // A probe the harness family cannot express is declared, never passed.
   if (profile.inapplicableProbes.includes(spec.type)) {
@@ -661,6 +614,49 @@ function runKnownProbe(
       return na(
         `exit ${r.status}${out.trim() ? `: ${fold(out, 1)}` : " — no verdict"}`,
       );
+    }
+    case "harness-reports": {
+      const label = `harness-reports(${spec.report})`;
+      const report = profile.reports[spec.report];
+      if (!report) {
+        const known = Object.keys(profile.reports);
+        return {
+          probe: label,
+          status: "n/a",
+          detail: `harness profile "${profile.name}" declares no "${spec.report}" report${known.length > 0 ? ` (it declares: ${known.join(", ")})` : ""} — declare one under "reports" in the manifest`,
+        };
+      }
+      const read = readReport(ctx.harness, report, path.resolve(ctx.configDir));
+      if (!read.ok) {
+        // The report changed shape, or never ran: nothing it says can be
+        // trusted either way, so no verdict — named, never a pass.
+        return {
+          probe: label,
+          status: "n/a",
+          detail: `could not read the "${spec.report}" report (${read.command}): ${read.reason}`,
+        };
+      }
+      const find = spec.find ?? [];
+      const count = `${read.records.length} ${read.records.length === 1 ? "record" : "records"}`;
+      if (find.length === 0) {
+        return {
+          probe: label,
+          status: "pass",
+          detail: `${read.command} read: ${count}`,
+        };
+      }
+      const misses = evaluateFind(read.records, find).filter((r) => !r.matched);
+      return misses.length === 0
+        ? {
+            probe: label,
+            status: "pass",
+            detail: `${read.command} reports ${find.map(describeEntry).join("; ")}`,
+          }
+        : {
+            probe: label,
+            status: fail(spec),
+            detail: `${read.command}: ${misses.map((m) => describeMiss(m, read.records)).join("; ")}`,
+          };
     }
     default: {
       // An unknown type name means a newer manifest met an older engine:

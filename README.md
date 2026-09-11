@@ -63,6 +63,7 @@ You declare probes; each runs against the live harness:
 | `hook-registered`  | your hook is still wired for its event                                                                   |
 | `transcript-field` | the fields your tool reads from transcripts are still present                                            |
 | `script`           | a repo-provided check still passes                                                                       |
+| `harness-reports`  | a fact the harness reports about itself still holds — a server connected, a doctor check passing         |
 
 A non-critical probe that drifts reports `degraded`; a probe marked `critical`
 reports `blocked`; a probe its [harness profile](#harness-profiles) says
@@ -178,6 +179,72 @@ where every layer's entries apply (a harness that runs every registered hook,
 whichever file declared it) or `override` where the nearest scope replaces the
 rest. It is the difference between "my hook moved scope" and "my hook is dead",
 so it is declared, never guessed.
+
+### What the harness says about itself
+
+Harnesses ship their own reports: a server list that health-checks each server,
+a doctor that reads the install. peirad does not second-guess them. What a
+harness cannot know is which of those facts _your_ integration relies on — so
+you name the report and the facts, and the harness does the checking:
+
+```json
+{
+  "type": "harness-reports",
+  "report": "mcp",
+  "find": [{ "name": "my-server", "status": "Connected" }],
+  "critical": true
+}
+```
+
+```
+ok    harness-reports(mcp): claude mcp list reports name=my-server, status=Connected
+DEGR  harness-reports(mcp): claude mcp list: name=my-server: status is "Needs authentication" (expected "Connected")
+```
+
+Each `find` entry is a set of fields that at least one record in the report must
+match entirely. Put the field that identifies a record first (`name`, `id`,
+`key`): on a miss, peirad describes the record sharing it, so the line says
+what the report shows instead of only that it did not match.
+
+The built-in profiles declare these reports — run each one yourself to see the
+fields a record carries:
+
+| Profile | Report           | Runs                    | Record fields                                             |
+| ------- | ---------------- | ----------------------- | --------------------------------------------------------- |
+| claude  | `mcp`            | `claude mcp list`       | `name`, `target`, `mark`, `status`                        |
+| claude  | `doctor`         | `claude doctor`         | `key`, `value` (one per `Key: value` line)                |
+| codex   | `mcp`            | `codex mcp list --json` | the JSON fields, e.g. `name`, `enabled`, `transport.type` |
+| codex   | `doctor`         | `codex doctor --json`   | one record per check: `id`, `status`, `summary`, …        |
+| codex   | `doctor-summary` | `codex doctor --json`   | the top-level document, e.g. `overallStatus`              |
+
+A report's output is read whatever its exit code — a doctor that found a problem
+usually exits non-zero while printing the report that says what. If the report
+changes shape so it can no longer be read, the probe reports `n/a` and quotes
+the start of the output: a report peirad cannot read says nothing either way,
+so it neither passes nor blames your integration. A profile without the report
+you name also reports `n/a`, listing the reports it has.
+
+For another harness, or a report the profiles do not carry, declare it in the
+manifest — `json` with an optional dotted `records` path, or `lines` with a
+regular expression whose named groups become the fields:
+
+```json
+{
+  "reports": {
+    "servers": {
+      "args": ["servers", "--list"],
+      "format": "lines",
+      "pattern": "^(?<name>\\S+)\\s+(?<state>\\w+)$",
+      "emptyPattern": "no servers"
+    }
+  }
+}
+```
+
+`emptyPattern` marks the output of a valid report with no records, so "nothing
+configured" is not mistaken for a changed shape. Reports run in the manifest's
+directory, and a server list that health-checks will start the servers it
+checks — the same trust as running that project's own scripts.
 
 The `script` probe runs an executable from the repo the manifest lives in:
 exit 0 passes, exit 1 fails with the script's stdout as the finding, and

@@ -91,6 +91,7 @@ function prepare(
       harnessVersion: version,
       settingsLayers: profile.settingsLayers,
       settingsArrays: profile.settingsArrays,
+      reports: profile.reports,
     },
   };
 }

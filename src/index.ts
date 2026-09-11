@@ -27,6 +27,21 @@ export {
   provenance,
 } from "./settings.js";
 export type { LayerVars, LoadedLayer, Provenance } from "./settings.js";
+export {
+  describeEntry,
+  describeMiss,
+  evaluateFind,
+  parseReport,
+  readReport,
+} from "./reports.js";
+export type {
+  FindResult,
+  HarnessReport,
+  ReportParse,
+  ReportRead,
+  ReportRecord,
+} from "./reports.js";
+export { deepEqual, fold, getDotted, show } from "./values.js";
 export { runManifest, observeManifest, runLedger } from "./doctor.js";
 export type { Verdict, RunOptions, LedgerOptions } from "./doctor.js";
 export {

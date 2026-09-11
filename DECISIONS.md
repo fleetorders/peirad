@@ -426,3 +426,38 @@ its probe, not duplicated by the ledger. A baseline written in another format is
 refused with the reason; a source the manifest reads now but the baseline never
 recorded is named as untracked rather than diffed. Comparing requires observing,
 which spawns the harness's help once more per run while a baseline exists.
+
+### D-018 — One generic probe reads the harness's own reports, and an unreadable report is `n/a`
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+What a harness says about itself — its server list, its doctor — is asserted by
+one probe type, `harness-reports`, rather than a probe per report. Each profile
+declares its reports as data: the arguments, and how to read the output (a JSON
+document with an optional records path, or lines matched by a named-group
+pattern, with a pattern for a valid empty report). A manifest may add or replace
+reports. The probe asserts declared facts — field sets a record must match —
+and reads the output whatever the exit code. A report it cannot read, or one the
+profile does not declare, is `n/a` with the reason and the start of the output.
+
+**Why:** the harness already health-checks its servers and validates its own
+install; re-implementing either would be a second opinion that drifts from the
+first. What the harness cannot know is which of its facts a given integration
+depends on, and that is the part this tool adds. A separate server probe would
+have been the same mechanism with a narrower name, and the next report would
+have wanted its own. A report whose shape changed says nothing either way about
+the integration: passing would be silent, and failing would blame the
+integration for a change in the report, so the honest verdict is none, with the
+output quoted so the reader sees why. Exit codes are ignored when the output
+reads, because a doctor that finds a problem normally exits non-zero while
+printing exactly the finding a probe asserts on.
+
+**Consequences:** a probe can only assert what a report prints — whether a
+server still exposes a particular tool is not in the server list, and checking
+it would need a live connection this probe does not make. A line pattern in a
+profile can go stale when a harness rewords its output; the cost is an `n/a`
+that quotes the new output, never a false verdict, and the fix is a profile
+edit. On a miss, the nearest record is weighed in declared order, so the first
+field of a fact names the record. Running a report runs the harness's command
+in the manifest's directory, and a server list that health-checks starts the
+servers it checks — the same trust boundary as the `script` probe.
