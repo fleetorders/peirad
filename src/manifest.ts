@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import type { ArrayMerge, SettingsLayer } from "./harness-profiles.js";
 import type { HarnessReport } from "./reports.js";
+import type { PathKind } from "./environment.js";
 
 /**
  * Where a settings probe looks: the single file it names, or the merged stack
@@ -87,6 +88,27 @@ export type ProbeSpec =
       critical?: boolean;
     }
   | {
+      type: "env";
+      /** Variables that must be set, and not empty. */
+      set?: string[];
+      /** Variables that must be unset, or empty. */
+      unset?: string[];
+      /** Variable → the exact value it must hold. */
+      equals?: Record<string, string>;
+      /** Variable → a regular expression its value must match. */
+      matches?: Record<string, string>;
+      /** Variable → what its value must point at: file, dir, executable, path. */
+      pointsAt?: Record<string, PathKind>;
+      /**
+       * "process" (default): the environment peirad runs in, which is the one
+       * a harness launched from the same place inherits. "effective": that
+       * environment with the harness's own settings-declared variables laid
+       * over it, as the harness applies them.
+       */
+      scope?: "process" | "effective";
+      critical?: boolean;
+    }
+  | {
       type: "script";
       /** Repo-relative path to an executable script (resolved against configDir). */
       script: string;
@@ -133,6 +155,11 @@ export interface Manifest {
    * report they do not carry.
    */
   reports?: Record<string, HarnessReport>;
+  /**
+   * Replace the profile's dotted path to the environment block in the
+   * harness's settings, read by an `env` probe with scope "effective".
+   */
+  settingsEnv?: string;
   probes: ProbeSpec[];
 }
 
@@ -155,6 +182,7 @@ export const PROBE_FIELDS: Record<string, readonly string[]> = {
   "hook-registered": ["file", "event", "match", "scope"],
   script: ["script", "args", "timeoutMs"],
   "harness-reports": ["report", "find"],
+  env: ["set", "unset", "equals", "matches", "pointsAt", "scope"],
 };
 
 /** Manifest-level keys this build understands. */
@@ -169,6 +197,7 @@ export const MANIFEST_FIELDS: readonly string[] = [
   "settingsLayers",
   "settingsArrays",
   "reports",
+  "settingsEnv",
   "probes",
 ];
 

@@ -92,6 +92,7 @@ function prepare(
       settingsLayers: profile.settingsLayers,
       settingsArrays: profile.settingsArrays,
       reports: profile.reports,
+      settingsEnv: profile.settingsEnv,
     },
   };
 }

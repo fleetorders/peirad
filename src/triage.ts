@@ -143,6 +143,20 @@ export function buildChangelogRubric(manifest: Manifest): string {
           .join("; ")}`,
       );
       declared++;
+    } else if (p.type === "env") {
+      const names = [
+        ...(p.set ?? []),
+        ...(p.unset ?? []),
+        ...Object.keys(p.equals ?? {}),
+        ...Object.keys(p.matches ?? {}),
+        ...Object.keys(p.pointsAt ?? {}),
+      ];
+      if (names.length > 0) {
+        lines.push(
+          `- Environment variables the integration depends on: ${[...new Set(names)].join(", ")}`,
+        );
+        declared++;
+      }
     } else if (p.type === "hook-registered") {
       lines.push(
         `- A hook on event ${p.event} matching "${p.match}" must stay registered`,

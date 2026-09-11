@@ -42,6 +42,13 @@ export type {
   ReportRecord,
 } from "./reports.js";
 export { deepEqual, fold, getDotted, show } from "./values.js";
+export { checkPath, envNames, evaluateEnv, safeToShow } from "./environment.js";
+export type {
+  EnvAssertions,
+  EnvEvaluation,
+  EnvSource,
+  PathKind,
+} from "./environment.js";
 export { runManifest, observeManifest, runLedger } from "./doctor.js";
 export type { Verdict, RunOptions, LedgerOptions } from "./doctor.js";
 export {

@@ -461,3 +461,36 @@ edit. On a miss, the nearest record is weighed in declared order, so the first
 field of a fact names the record. Running a report runs the harness's command
 in the manifest's directory, and a server list that health-checks starts the
 servers it checks — the same trust boundary as the `script` probe.
+
+### D-019 — The environment contract is deterministic, and a variable's value is a secret until shown otherwise
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+An `env` probe asserts variables around the harness — set, unset, an exact
+value, a pattern, a path that exists as a file, directory or executable. By
+default it checks the environment peirad runs in; with `scope: "effective"`
+the variables the harness's settings declare are laid over it, read across the
+settings stack, with the block's location kept as profile data
+(`settingsEnv`). A value is printed only when the variable's name does not look
+like a credential and the value is short and plain; a path is printed on a
+path failure under the same name rule. No probe asks a model which model or
+provider it is.
+
+**Why:** a provider endpoint, a config directory or a certificate bundle
+changes with a shell edit, and the harness does not report it. These are facts
+a machine can check exactly, so they are checked exactly. A model's report of
+its own identity is not such a fact — the harness's own accounting has labelled
+calls wrongly — so treating it as evidence would put a guess where a check
+belongs. The printing rule exists because a verdict is written to be read in CI
+logs: an assertion about an API key is exactly the case where echoing the value
+would publish it, and "holds a different value than declared" is enough to act
+on.
+
+**Consequences:** some mismatches are reported without the value that would
+make them obvious — the cost of never leaking one, and the variable name is
+always there. The name heuristic can hide a harmless value under a
+credential-like name; it cannot show a secret under one. The process scope
+checks peirad's own environment, which matches the harness's only when both are
+started from the same place — a harness launched by a desktop app or a service
+manager may see a different environment, and running the check from where the
+harness runs is the fix, as for every other probe.

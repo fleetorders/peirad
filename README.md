@@ -64,6 +64,7 @@ You declare probes; each runs against the live harness:
 | `transcript-field` | the fields your tool reads from transcripts are still present                                            |
 | `script`           | a repo-provided check still passes                                                                       |
 | `harness-reports`  | a fact the harness reports about itself still holds — a server connected, a doctor check passing         |
+| `env`              | the variables around the harness are set, unset, hold the value, or point at what you declared           |
 
 A non-critical probe that drifts reports `degraded`; a probe marked `critical`
 reports `blocked`; a probe its [harness profile](#harness-profiles) says
@@ -245,6 +246,51 @@ regular expression whose named groups become the fields:
 configured" is not mistaken for a changed shape. Reports run in the manifest's
 directory, and a server list that health-checks will start the servers it
 checks — the same trust as running that project's own scripts.
+
+### The environment around the harness
+
+Much of what an integration relies on is not in a flag or a settings file but in
+the variables around the harness: which provider endpoint it talks to, which
+config directory it reads, which certificate bundle it trusts, which helper is
+on PATH. A shell profile edit changes them, and the harness says nothing.
+
+```json
+{
+  "type": "env",
+  "set": ["ANTHROPIC_BASE_URL"],
+  "unset": ["ANTHROPIC_API_KEY"],
+  "matches": { "ANTHROPIC_BASE_URL": "^https://" },
+  "equals": { "CLAUDE_CODE_USE_BEDROCK": "1" },
+  "pointsAt": { "NODE_EXTRA_CA_CERTS": "file" },
+  "critical": true
+}
+```
+
+- `set` / `unset` — the variable is set and not empty, or it is absent or empty.
+- `equals` / `matches` — its value is exactly this, or matches this regular
+  expression.
+- `pointsAt` — its value is a path to an existing `file`, `dir`, `executable`
+  (a bare name is looked up on PATH) or any existing `path`. A relative value is
+  resolved against the manifest's directory.
+
+By default the probe checks the environment peirad runs in — the one a harness
+started from the same place inherits. With `scope: "effective"` the variables
+the harness's own settings declare (Claude Code's `env` block, across the whole
+[settings stack](#reading-the-whole-settings-stack)) are laid over it, as the
+harness applies them, and each line names where a value came from:
+
+```
+DEGR  env(ANTHROPIC_BASE_URL): ANTHROPIC_BASE_URL (settings: project) does not match /^https:///
+```
+
+**Values are treated as secrets.** A verdict line ends up in CI logs, so a value
+is shown only when the variable's name does not look like a credential (`KEY`,
+`TOKEN`, `SECRET`, `AUTH`, …) and the value is short and plain; otherwise the
+line says the value differs, or does not match, without printing it.
+
+These checks are deterministic. None of them asks a model which model or
+provider it is: a model's account of itself is not evidence of how it was
+configured.
 
 The `script` probe runs an executable from the repo the manifest lives in:
 exit 0 passes, exit 1 fails with the script's stdout as the finding, and

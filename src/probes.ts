@@ -32,6 +32,7 @@ import {
   readReport,
   type HarnessReport,
 } from "./reports.js";
+import { envNames, evaluateEnv, type EnvSource } from "./environment.js";
 import {
   describeLayers,
   effectiveSettings,
@@ -89,6 +90,10 @@ export interface ProbeContext {
   /** The reports a `harness-reports` probe may name — the profile's, with the
    * manifest's own declarations folded in by the runner. */
   reports?: Record<string, HarnessReport>;
+  /** Dotted path to the settings' environment block; see `HarnessProfile`. */
+  settingsEnv?: string;
+  /** The environment an `env` probe checks; `process.env` when absent. */
+  env?: EnvSource;
 }
 
 const fail = (spec: { critical?: boolean }): ProbeStatus =>
@@ -287,6 +292,10 @@ function probeLabel(spec: ProbeSpec, harness: string): string {
       return `script(${[spec.script, ...(spec.args ?? [])].join(" ")})`;
     case "harness-reports":
       return `harness-reports(${spec.report})`;
+    case "env": {
+      const names = envNames(spec);
+      return `env(${names.slice(0, 4).join(",")}${names.length > 4 ? ",…" : ""})`;
+    }
     default:
       return (spec as { type: string }).type;
   }
@@ -334,6 +343,7 @@ function runKnownProbe(
     settingsLayers: ctx.settingsLayers ?? named.settingsLayers,
     settingsArrays: ctx.settingsArrays ?? named.settingsArrays,
     reports: ctx.reports ?? named.reports,
+    settingsEnv: ctx.settingsEnv ?? named.settingsEnv,
   };
   // A probe the harness family cannot express is declared, never passed.
   if (profile.inapplicableProbes.includes(spec.type)) {
@@ -657,6 +667,71 @@ function runKnownProbe(
             status: fail(spec),
             detail: `${read.command}: ${misses.map((m) => describeMiss(m, read.records)).join("; ")}`,
           };
+    }
+    case "env": {
+      const label = probeLabel(spec, ctx.harness);
+      if (envNames(spec).length === 0) {
+        return {
+          probe: label,
+          status: "n/a",
+          detail: `nothing declared — the probe needs "set", "unset", "equals", "matches" or "pointsAt"`,
+        };
+      }
+      const processEnv: EnvSource = ctx.env ?? process.env;
+      let env = processEnv;
+      let origin: ((name: string) => string | undefined) | undefined;
+      let where = "";
+      if (spec.scope === "effective") {
+        const envKey = profile.settingsEnv;
+        if (!envKey) {
+          return {
+            probe: label,
+            status: "n/a",
+            detail: `harness profile "${profile.name}" declares no environment block in its settings — use scope "process"`,
+          };
+        }
+        const source = readSettings(
+          { scope: "effective", critical: spec.critical },
+          ctx,
+          profile,
+        );
+        if (!source.ok) {
+          return { probe: label, status: source.status, detail: source.detail };
+        }
+        // The settings' variables are laid over the process environment, as
+        // the harness applies them to its session.
+        const block = getDotted(source.data, envKey);
+        const declared: Record<string, string> = {};
+        if (block && typeof block === "object" && !Array.isArray(block)) {
+          for (const [k, v] of Object.entries(block)) {
+            if (v !== undefined && v !== null) declared[k] = String(v);
+          }
+        }
+        env = { ...processEnv, ...declared };
+        const layers = source.layers ?? [];
+        origin = (name) => {
+          if (name in declared) {
+            const p = provenance(
+              layers,
+              `${envKey}.${name}`,
+              profile.settingsArrays,
+              getDotted,
+            );
+            return `settings: ${p.from.join("+")}`;
+          }
+          return processEnv[name] ? "process" : undefined;
+        };
+        where = ` [${source.where}]`;
+      }
+      const { held, problems } = evaluateEnv(spec, env, {
+        baseDir: path.resolve(ctx.configDir),
+        origin,
+      });
+      return {
+        probe: label,
+        status: problems.length === 0 ? "pass" : fail(spec),
+        detail: `${(problems.length === 0 ? held : problems).join(" · ")}${where}`,
+      };
     }
     default: {
       // An unknown type name means a newer manifest met an older engine:

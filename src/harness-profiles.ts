@@ -91,6 +91,12 @@ export interface HarnessProfile {
    * report the harness does not have is simply not declared.
    */
   reports: Record<string, HarnessReport>;
+  /**
+   * Dotted path to the block of environment variables the harness's own
+   * settings declare and applies to its sessions — absent where the harness
+   * has no such block in a file peirad can read.
+   */
+  settingsEnv?: string;
   /** Turn the harness's stdout into the reply text + usage. */
   parseOutput(stdout: string): ProfileParse;
 }
@@ -195,6 +201,9 @@ const claudeProfile: HarnessProfile = {
       pattern: "^(?<key>[A-Z][^:]*): (?<value>.+)$",
     },
   },
+  // Variables under `env` in any settings layer are applied to the session,
+  // over the environment the harness was started in.
+  settingsEnv: "env",
   parseOutput(stdout) {
     let envelope: unknown;
     try {
@@ -323,6 +332,7 @@ export function resolveProfile(
     | "settingsLayers"
     | "settingsArrays"
     | "reports"
+    | "settingsEnv"
   >,
 ): HarnessProfile {
   const name = harnessProfile ?? (harness in PROFILES ? harness : "claude");
@@ -346,6 +356,7 @@ export function resolveProfile(
     settingsLayers: overrides?.settingsLayers ?? base.settingsLayers,
     settingsArrays: overrides?.settingsArrays ?? base.settingsArrays,
     reports: { ...base.reports, ...(overrides?.reports ?? {}) },
+    settingsEnv: overrides?.settingsEnv ?? base.settingsEnv,
   };
 }
 
