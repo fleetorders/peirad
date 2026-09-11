@@ -4,3 +4,6 @@ dist/
 .env
 .DS_Store
 .etymd/cache/
+
+# local-only tooling: never tracked, never published
+local/

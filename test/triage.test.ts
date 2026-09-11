@@ -15,6 +15,7 @@ import { resolveProfile } from "../src/harness-profiles.js";
 const here = (f: string): string => fileURLToPath(new URL(f, import.meta.url));
 const FAKE = here("./fake-harness.sh");
 const NOUSAGE = here("./fake-harness-nousage.sh");
+const FAKEEXIT1 = here("./fake-harness-exit1.sh");
 const FAKECODEX = here("./fake-codex-harness.sh");
 const ALARM = fs.readFileSync(here("./fixtures/changelog-alarm.md"), "utf8");
 
@@ -127,6 +128,21 @@ describe("assessAlarm", () => {
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
     expect(outcome.reason).toContain("timed out after 1s");
+  });
+
+  it("carries stderr and the version when the harness exits non-zero", () => {
+    const outcome = assessAlarm({
+      alarm: ALARM,
+      rubric: "# rubric",
+      harness: FAKEEXIT1,
+      timeoutSeconds: 20,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.reason).toContain("exited 1");
+    expect(outcome.reason).toContain("fake-harness-exit1 1.2.3");
+    expect(outcome.reason).toContain("not logged in");
+    expect(outcome.reason).toContain("run `claude login`");
   });
 });
 
@@ -292,7 +308,9 @@ describe("triageCommand", () => {
       timeout: "20",
     });
     expect(code).toBe(2);
-    expect(err).toContain("pre-assessment unavailable: harness exited 1");
+    expect(err).toContain(
+      'pre-assessment unavailable: harness "/usr/bin/false" (unknown) exited 1 (no stderr)',
+    );
   });
 
   it("exits 2 on a missing alarm or rubric file", () => {
@@ -386,7 +404,7 @@ describe("harness profiles", () => {
     expect(outcome.result.profile).toBe("codex");
     // codex reports tokens but neither model nor cost — both stay null.
     expect(outcome.result.usage).toEqual({
-      input_tokens: 21,
+      input_tokens: 13,
       cache_read_tokens: 8,
       cache_write_tokens: 2,
       output_tokens: 43,
@@ -407,7 +425,7 @@ describe("harness profiles", () => {
     });
     expect(code).toBe(0);
     expect(out).toContain("Verdict: action\n");
-    expect(out).toContain("usage: in 21 / cached 10 / out 43 tokens\n");
+    expect(out).toContain("usage: in 13 / cached 10 / out 43 tokens\n");
   });
 
   it("defaults an unknown harness to the claude convention (backwards compat)", () => {

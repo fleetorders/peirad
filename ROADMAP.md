@@ -5,7 +5,28 @@ than left to rot. What exists today is described in the README, not here.
 
 ## Now
 
-- More probe types: environment/model-slot resolution and MCP-server presence.
+- Assert a setting's value and a renamed key's absence, and declare the helper
+  programs a feature shells out to. _Shipped 2026-09-11._
+- Judge settings where the harness reads them: merge the settings stack in its
+  own precedence (`scope: "effective"`). _Shipped 2026-09-11._
+- Report what moved that nobody declared, against a committed baseline of the
+  observed surface (`--record-baseline`). _Shipped 2026-09-11._
+- Assert what the harness reports about itself — a server connected, a doctor
+  check passing — through one generic probe (`harness-reports`). _Shipped
+  2026-09-11._
+- Assert the environment contract around the harness — variables set, unset,
+  holding a value, pointing at a real file — without printing secrets (`env`).
+  _Shipped 2026-09-11._
+- Prove the declared hooks, transcript fields and flags in one real turn, on the
+  harness's own login with the user's settings set aside and the session removed
+  afterwards, opt-in (`--live`). _Shipped 2026-09-11._
+- Name, on every verdict, which probe types the manifest declares and which it
+  does not. _Shipped 2026-09-11._
+- Draft the manifest from the project's own files, and report what the code
+  uses but the manifest does not declare (`init`, `--coverage`). _Shipped
+  2026-09-11._
+- Read a manifest strictly before running it, with the line of every problem
+  (`validate`). _Shipped 2026-09-11._
 - A published compatibility matrix per harness (verified-against versions).
 
 ## Next

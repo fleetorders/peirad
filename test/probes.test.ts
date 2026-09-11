@@ -3,7 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { runProbe, type ProbeContext } from "../src/probes.js";
-import { loadManifest } from "../src/manifest.js";
+import {
+  loadManifest,
+  type Manifest,
+  type ProbeSpec,
+} from "../src/manifest.js";
+import { runManifest } from "../src/doctor.js";
 
 let dir: string;
 const ctx = (): ProbeContext => ({ harness: "true", configDir: dir });
@@ -115,6 +120,64 @@ describe("transcript-field", () => {
     );
     expect(r.status).toBe("degraded");
   });
+
+  // Two transcripts where the alphabetically-first, OLDER file lacks a
+  // declared field and the alphabetically-later, NEWER file has it: the probe
+  // must sample by mtime (the file the current build wrote), not by name.
+  const writeTranscript = (
+    name: string,
+    fields: Record<string, unknown>,
+    mtime: Date,
+  ): void => {
+    fs.mkdirSync(path.join(dir, "transcripts"), { recursive: true });
+    const p = path.join(dir, "transcripts", name);
+    fs.writeFileSync(p, JSON.stringify(fields) + "\n");
+    fs.utimesSync(p, mtime, mtime);
+  };
+  const OLD = new Date("2026-01-01T00:00:00Z");
+  const NEW = new Date("2026-06-01T00:00:00Z");
+
+  it("samples the newest transcript, not the first in name order", () => {
+    writeTranscript("a-first.jsonl", { type: "user" }, OLD);
+    writeTranscript(
+      "z-second.jsonl",
+      { type: "user", message: { role: "x" } },
+      NEW,
+    );
+    const r = runProbe(
+      {
+        type: "transcript-field",
+        glob: "transcripts/**/*.jsonl",
+        fields: ["type", "message"],
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("pass");
+    expect(r.detail).toContain("z-second.jsonl");
+    expect(r.detail).toContain("2026-06-01");
+  });
+
+  it("reports drift when the NEWEST transcript lacks the field", () => {
+    writeTranscript(
+      "a-first.jsonl",
+      { type: "user", message: { role: "x" } },
+      OLD,
+    );
+    writeTranscript("z-second.jsonl", { type: "user" }, NEW);
+    const r = runProbe(
+      {
+        type: "transcript-field",
+        glob: "transcripts/**/*.jsonl",
+        fields: ["type", "message"],
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("z-second.jsonl");
+    expect(r.detail).toContain("2026-06-01");
+  });
 });
 
 describe("script", () => {
@@ -195,32 +258,115 @@ describe("loadManifest", () => {
     );
     expect(() => loadManifest(bad)).toThrow(/promptArgs/);
   });
+  it("rejects a probe without a string type", () => {
+    const bad = path.join(dir, "bad-probe.json");
+    fs.writeFileSync(bad, JSON.stringify({ harness: "x", probes: [{}] }));
+    expect(() => loadManifest(bad)).toThrow(/probes\[0\]/);
+  });
+});
+
+describe("unknown probe type", () => {
+  it("declares n/a naming the type and the engine version — never a crash", () => {
+    const pkg = JSON.parse(
+      fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
+    const r = runProbe({ type: "bogus-probe" } as never, ctx(), []);
+    expect(r.status).toBe("n/a");
+    expect(r.probe).toBe("bogus-probe");
+    expect(r.detail).toContain("bogus-probe");
+    expect(r.detail).toContain(pkg.version);
+    expect(r.detail).toContain("upgrade peirad");
+  });
+});
+
+describe("runManifest", () => {
+  it("returns ok with na=1 over a manifest holding one unknown probe type", () => {
+    const v = runManifest(
+      {
+        harness: "true",
+        probes: [{ type: "bogus-probe" }, { type: "command-exists" }] as never,
+      },
+      { date: "2026-09-11" },
+    );
+    expect(v.ok).toBe(true);
+    expect(v.na).toBe(1);
+    expect(v.results).toHaveLength(2);
+  });
+
+  it("names the checker's own version in the verdict", () => {
+    // Attribution: a wiring that tracks the newest published release learns
+    // which build spoke only from the verdict itself.
+    const pkg = JSON.parse(
+      fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
+    const v = runManifest(
+      { harness: "true", probes: [{ type: "command-exists" }] },
+      { date: "2026-09-11" },
+    );
+    expect(v.checker).toBe(pkg.version);
+  });
+
+  it("carries the resolved binary path in the verdict and the detail", () => {
+    // `sh` is an on-disk binary everywhere; `true` would resolve to a shell
+    // builtin, which `command -v` reports by name, not by path.
+    const v = runManifest(
+      { harness: "sh", probes: [{ type: "command-exists" }] },
+      { date: "2026-09-11" },
+    );
+    expect(typeof v.path).toBe("string");
+    expect(v.path).toMatch(/\/sh$/);
+    const ce = v.results.find((r) => r.probe === "command-exists(sh)");
+    expect(ce?.status).toBe("pass");
+    expect(ce?.detail).toContain(`is on PATH (${v.path})`);
+  });
 });
 
 describe("profile applicability", () => {
-  it("declares config-key n/a for the codex profile, never a pass", () => {
+  // D-009: applicability follows the file shape, not the harness name. Codex
+  // keeps hooks in a JSON file of the same `hooks.<Event>[].hooks[].command`
+  // shape, so the settings probes apply to it — a manifest names that file.
+  it("config-key applies under the codex profile against its hooks JSON", () => {
+    fs.writeFileSync(
+      path.join(dir, "hooks.json"),
+      JSON.stringify({
+        hooks: { PreToolUse: [{ hooks: [{ command: "sh ask-guard.sh" }] }] },
+      }),
+    );
     const r = runProbe(
-      { type: "config-key", file: "settings.json", keys: ["hooks.PreToolUse"] },
+      { type: "config-key", file: "hooks.json", keys: ["hooks.PreToolUse"] },
       { ...ctx(), profileName: "codex" },
       [],
     );
-    expect(r.status).toBe("n/a");
-    expect(r.detail).toContain('profile "codex"');
-    expect(r.probe).toBe("config-key(settings.json)");
+    expect(r.status).toBe("pass");
+    expect(r.probe).toBe("config-key(hooks.json)");
   });
 
-  it("declares hook-registered n/a for the codex profile", () => {
+  it("hook-registered finds a codex hook in that file", () => {
     const r = runProbe(
       {
         type: "hook-registered",
-        file: "settings.json",
+        file: "hooks.json",
         event: "PreToolUse",
-        match: "agent-guard",
+        match: "ask-guard",
       },
       { ...ctx(), profileName: "codex" },
       [],
     );
-    expect(r.status).toBe("n/a");
+    expect(r.status).toBe("pass");
+  });
+
+  it("a settings file the codex install lacks is drift, not n/a", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "no-such-settings.json",
+        keys: ["hooks.PreToolUse"],
+      },
+      { ...ctx(), profileName: "codex" },
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("file not found");
   });
 
   it("keeps config-key passing under the default (claude) profile", () => {
@@ -274,5 +420,294 @@ describe("flag-accepted help routing", () => {
     // not a silent pass.
     expect(r.status).toBe("degraded");
     expect(r.detail).toContain("not in --help: --json");
+  });
+});
+
+describe("flag-accepted whole-token matching", () => {
+  let cli: string;
+  beforeAll(() => {
+    cli = path.join(dir, "flaggy-cli.sh");
+    fs.writeFileSync(
+      cli,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--help" ]; then',
+        '  echo "  --allowedTools <tools...>"',
+        '  echo "  -p, --print"',
+        '  echo "  --output-format=json"',
+        "  exit 0",
+        "fi",
+        "exit 1",
+        "",
+      ].join("\n"),
+    );
+    fs.chmodSync(cli, 0o755);
+  });
+  const probe = (flags: string[]) =>
+    runProbe(
+      { type: "flag-accepted", flags },
+      { harness: cli, configDir: dir },
+      [],
+    );
+
+  it("a substring of a longer flag does not pass", () => {
+    expect(probe(["--allowedTools"]).status).toBe("pass");
+    const sub = probe(["--allowed"]);
+    expect(sub.status).toBe("degraded");
+    expect(sub.detail).toContain("not in --help: --allowed");
+  });
+  it("a short flag beside its long form matches exactly", () => {
+    expect(probe(["-p"]).status).toBe("pass");
+    expect(probe(["-x"]).status).toBe("degraded");
+  });
+  it("a flag written --output-format=json still matches --output-format", () => {
+    expect(probe(["--output-format"]).status).toBe("pass");
+  });
+});
+
+describe("config-key: expected values", () => {
+  let cfg: string;
+  beforeAll(() => {
+    cfg = path.join(dir, "values.json");
+    fs.writeFileSync(
+      cfg,
+      JSON.stringify({
+        voice: { enabled: true, enable: false },
+        permissions: { defaultMode: "acceptEdits", allow: ["Bash", "Read"] },
+        limits: { maxTokens: 4096 },
+      }),
+    );
+  });
+
+  it("passes when every declared value matches", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: {
+          "voice.enabled": true,
+          "permissions.defaultMode": "acceptEdits",
+        },
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("pass");
+    expect(r.detail).toContain("values match");
+  });
+
+  it("degrades naming the value it found and the one declared", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "voice.enabled": false },
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("voice.enabled is true (expected false)");
+  });
+
+  it("reports an expected key that is not there at all", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "voice.volume": 3 },
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("voice.volume is absent (expected 3)");
+  });
+
+  it("compares arrays and objects deeply, not by identity", () => {
+    const match = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "permissions.allow": ["Bash", "Read"] },
+      },
+      ctx(),
+      [],
+    );
+    expect(match.status).toBe("pass");
+    const reordered = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "permissions.allow": ["Read", "Bash"] },
+      },
+      ctx(),
+      [],
+    );
+    expect(reordered.status).toBe("degraded");
+  });
+
+  it("blocks on a wrong value when the probe is critical", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "limits.maxTokens": 8192 },
+        critical: true,
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("blocked");
+  });
+});
+
+describe("config-key: names that must be absent", () => {
+  it("passes when the declared name is gone", () => {
+    const r = runProbe(
+      { type: "config-key", file: "values.json", absent: ["voice.legacyMode"] },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("pass");
+    expect(r.detail).toContain("absent as declared");
+  });
+
+  it("reports the leftover twin of a renamed key, with the value it still holds", () => {
+    const r = runProbe(
+      { type: "config-key", file: "values.json", absent: ["voice.enable"] },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain(
+      "declared absent but present: voice.enable = false",
+    );
+  });
+
+  it("names a wrong value and a leftover key in the same verdict", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        keys: ["limits.maxTokens"],
+        expect: { "voice.enabled": false },
+        absent: ["voice.enable"],
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("voice.enabled is true");
+    expect(r.detail).toContain("voice.enable = false");
+  });
+
+  it("is n/a when the probe declares nothing to assert", () => {
+    const r = runProbe({ type: "config-key", file: "values.json" }, ctx(), []);
+    expect(r.status).toBe("n/a");
+    expect(r.detail).toContain("nothing declared");
+  });
+});
+
+describe("command-exists: helper programs", () => {
+  it("checks a declared helper program instead of the harness", () => {
+    const r = runProbe({ type: "command-exists", command: "sh" }, ctx(), []);
+    expect(r.status).toBe("pass");
+    expect(r.probe).toBe("command-exists(sh)");
+  });
+
+  it("names a missing helper as a helper, not as the harness", () => {
+    const r = runProbe(
+      { type: "command-exists", command: "peirad-no-such-helper" },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("declared as a helper program");
+  });
+
+  it("still checks the harness itself when no helper is named", () => {
+    const r = runProbe({ type: "command-exists" }, ctx(), []);
+    expect(r.probe).toBe("command-exists(true)");
+    expect(r.status).toBe("pass");
+  });
+});
+
+describe("fields a build does not understand", () => {
+  const withUnknown = (extra: Record<string, unknown>): ProbeSpec =>
+    ({
+      type: "config-key",
+      file: "settings.json",
+      keys: ["hooks.PreToolUse"],
+      ...extra,
+    }) as unknown as ProbeSpec;
+
+  it("degrades a pass that skipped a declared assertion, naming the field", () => {
+    const r = runProbe(withUnknown({ mustEqual: { a: 1 } }), ctx(), []);
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("1 declared assertion skipped");
+    expect(r.detail).toContain("mustEqual");
+    expect(r.detail).toContain("upgrade peirad");
+  });
+
+  it("never turns a skipped assertion into a block, however critical the probe", () => {
+    const r = runProbe(
+      withUnknown({ mustEqual: { a: 1 }, critical: true }),
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+  });
+
+  it("keeps a real failure's own register and still names the skipped field", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "settings.json",
+        keys: ["hooks.Nope"],
+        critical: true,
+        mustEqual: {},
+      } as unknown as ProbeSpec,
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("blocked");
+    expect(r.detail).toContain("missing keys");
+    expect(r.detail).toContain("mustEqual");
+  });
+
+  it("treats an underscore key as a comment, never as a skipped assertion", () => {
+    const r = runProbe(
+      withUnknown({ _note: "why this probe exists" }),
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("pass");
+    expect(r.detail).not.toContain("skipped");
+  });
+
+  it("says nothing extra about a probe type it does not know at all", () => {
+    const r = runProbe(
+      { type: "future-probe", someField: 1 } as unknown as ProbeSpec,
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("n/a");
+    expect(r.detail).toContain('unknown probe type "future-probe"');
+    expect(r.detail).not.toContain("someField");
+  });
+
+  it("notes a manifest key it ignores without changing the verdict", () => {
+    const v = runManifest(
+      {
+        harness: "true",
+        probes: [{ type: "command-exists" }],
+        futureSetting: "on",
+      } as unknown as Manifest,
+      { configDir: dir, date: "2026-09-11" },
+    );
+    expect(v.ok).toBe(true);
+    expect(v.notes.join(" ")).toContain("futureSetting");
+    expect(v.notes.join(" ")).toContain("upgrade peirad");
   });
 });

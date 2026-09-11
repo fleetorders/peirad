@@ -1,4 +1,13 @@
 #!/usr/bin/env sh
+
+# Screen what this push publishes: branch and tag names, tag and commit messages, and the
+# tracked hooks, scripts and package manifest. The checker is resolved by name from PATH;
+# where it is not installed there is no check, never a failure. (published-surface stub)
+GUARD=$(command -v public-surface-guard || true)
+if [ -x "$GUARD" ]; then
+  "$GUARD" --pre-push "$@" || exit 1
+fi
+
 # Repo-owned pre-push checks (etymd never touches this file). The generated hook already runs
 # `npm run typecheck`; this adds the test suite, which is where every gate proves it fires.
 # Until now the suite ran only in CI, which is the slowest feedback loop there is: a failure

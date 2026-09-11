@@ -18,7 +18,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { loadManifest, type Manifest } from "./manifest.js";
-import { harnessVersion } from "./probes.js";
+import { harnessVersion, fold } from "./probes.js";
 import {
   expandArgs,
   parseJsonLenient,
@@ -98,10 +98,65 @@ export function buildChangelogRubric(manifest: Manifest): string {
       lines.push(`- CLI flags that must keep parsing: ${p.flags.join(", ")}`);
       declared++;
     } else if (p.type === "config-key") {
+      const where =
+        p.scope === "effective" ? "the effective settings" : (p.file ?? "?");
+      // Three declarable shapes on one file: keys that must exist, values they
+      // must hold, names that must have gone. A changelog can break any of
+      // them, so each is listed as its own dependency rather than summarised.
+      if (p.keys?.length) {
+        lines.push(
+          `- Config keys in ${where} that must keep existing: ${p.keys.join(", ")}`,
+        );
+        declared++;
+      }
+      const expected = Object.entries(p.expect ?? {});
+      if (expected.length > 0) {
+        lines.push(
+          `- Config values in ${where} that must keep their meaning: ${expected
+            .map(([k, v]) => `${k} = ${JSON.stringify(v)}`)
+            .join(", ")}`,
+        );
+        declared++;
+      }
+      if (p.absent?.length) {
+        lines.push(
+          `- Config keys in ${where} that must stay absent (renamed or removed upstream): ${p.absent.join(", ")}`,
+        );
+        declared++;
+      }
+    } else if (p.type === "command-exists" && p.command) {
       lines.push(
-        `- Config keys in ${p.file} that must keep existing: ${p.keys.join(", ")}`,
+        `- A helper program the integration shells out to must stay installed: ${p.command}`,
       );
       declared++;
+    } else if (p.type === "harness-reports" && p.find?.length) {
+      lines.push(
+        `- The harness's own "${p.report}" report must keep showing: ${p.find
+          .map((f) =>
+            Object.entries(f)
+              .map(
+                ([k, v]) =>
+                  `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`,
+              )
+              .join(", "),
+          )
+          .join("; ")}`,
+      );
+      declared++;
+    } else if (p.type === "env") {
+      const names = [
+        ...(p.set ?? []),
+        ...(p.unset ?? []),
+        ...Object.keys(p.equals ?? {}),
+        ...Object.keys(p.matches ?? {}),
+        ...Object.keys(p.pointsAt ?? {}),
+      ];
+      if (names.length > 0) {
+        lines.push(
+          `- Environment variables the integration depends on: ${[...new Set(names)].join(", ")}`,
+        );
+        declared++;
+      }
     } else if (p.type === "hook-registered") {
       lines.push(
         `- A hook on event ${p.event} matching "${p.match}" must stay registered`,
@@ -157,11 +212,19 @@ export function assessAlarm(opts: AssessOptions): TriageOutcome {
     const why =
       e.code === "ETIMEDOUT"
         ? `harness call timed out after ${timeoutSeconds}s`
-        : `harness "${harness}" not runnable (${e.code ?? e.message})`;
+        : `harness "${harness}" (${version}) not runnable (${e.code ?? e.message})`;
     return { ok: false, reason: why };
   }
   if (r.status !== 0) {
-    return { ok: false, reason: `harness exited ${r.status}` };
+    // Carry the cause: a bare exit number cannot be acted on, and the
+    // harness's own stderr is the most specific thing available.
+    const stderr = (r.stderr ?? "").trim();
+    return {
+      ok: false,
+      reason: stderr
+        ? `harness "${harness}" (${version}) exited ${r.status}: ${fold(stderr)}`
+        : `harness "${harness}" (${version}) exited ${r.status} (no stderr)`,
+    };
   }
   // The profile unwraps the harness's own envelope/stream shape; everything
   // downstream sees one reply string plus whatever usage it reported.

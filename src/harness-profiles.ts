@@ -4,9 +4,12 @@
  * (flags, event streams, envelope shapes), so the invocation and the parsing
  * travel together as data on a profile. A manifest picks one by name
  * (`harnessProfile`) or lets the harness name decide; `promptArgs`/`outputArgs`
- * override the argv templates for a CLI the profiles do not know.
+ * override the argv templates for a CLI the profiles do not know, and
+ * `settingsLayers` overrides where that CLI keeps its settings stack.
  */
 import type { Manifest } from "./manifest.js";
+import type { HarnessReport } from "./reports.js";
+import type { LiveProfile } from "./live.js";
 
 /**
  * Token/cost accounting the harness reported alongside its reply, normalized
@@ -39,6 +42,19 @@ export type ProfileParse =
  */
 export const PROMPT_PLACEHOLDER = "{prompt}";
 
+/**
+ * One file in a harness's settings stack. `path` is a template: `{home}` and
+ * `{configDir}` expand at run time, so nothing here names a particular
+ * machine. A layer may spell its path differently per platform.
+ */
+export interface SettingsLayer {
+  /** How the layer is named in a verdict line ("user", "project", "managed"). */
+  name: string;
+  path: string;
+  /** Overrides `path` on the platforms it names (keys are `process.platform`). */
+  platformPaths?: Record<string, string>;
+}
+
 export interface HarnessProfile {
   /** Profile name as a manifest writes it ("claude", "codex"). */
   name: string;
@@ -56,9 +72,44 @@ export interface HarnessProfile {
    * declares one gets an `n/a` line naming the profile — never a pass.
    */
   inapplicableProbes: string[];
+  /**
+   * The settings files this harness reads, LOWEST precedence first. A probe
+   * with `scope: "effective"` merges them in this order before it looks, so a
+   * setting is judged where the harness actually reads it rather than in
+   * whichever single file a manifest happened to name. An empty stack means
+   * the profile declares none, and such a probe reports `n/a`.
+   */
+  settingsLayers: SettingsLayer[];
+  /**
+   * How values found in more than one layer combine. `concat` for a harness
+   * that runs every registered hook whatever scope declared it; `override`
+   * where the nearest scope replaces the others outright.
+   */
+  settingsArrays: ArrayMerge;
+  /**
+   * Reports this harness produces about itself, by name, and how to read
+   * each — the facts a `harness-reports` probe asserts come from here. A
+   * report the harness does not have is simply not declared.
+   */
+  reports: Record<string, HarnessReport>;
+  /**
+   * Dotted path to the block of environment variables the harness's own
+   * settings declare and applies to its sessions — absent where the harness
+   * has no such block in a file peirad can read.
+   */
+  settingsEnv?: string;
+  /**
+   * How to drive this harness through one isolated turn for `--live`: the
+   * variable that relocates its configuration, a no-cost login check, where
+   * fixture hooks and the transcript go. Absent, a live run reports `n/a`.
+   */
+  live?: LiveProfile;
   /** Turn the harness's stdout into the reply text + usage. */
   parseOutput(stdout: string): ProfileParse;
 }
+
+/** How a harness combines list values found in more than one settings layer. */
+export type ArrayMerge = "concat" | "override";
 
 export function parseJsonLenient(text: string): unknown {
   try {
@@ -121,6 +172,64 @@ const claudeProfile: HarnessProfile = {
   outputArgs: ["--output-format", "json"],
   helpArgs: ["--help"],
   inapplicableProbes: [],
+  // Lowest precedence first: the user's own settings, then the project's,
+  // then the local override beside it, then the machine policy file an
+  // administrator controls. Hook lists JOIN across scopes — every registered
+  // hook runs, whichever file declared it — so a hook that merely moved scope
+  // is not drift.
+  settingsLayers: [
+    { name: "user", path: "{home}/.claude/settings.json" },
+    { name: "project", path: "{configDir}/.claude/settings.json" },
+    { name: "local", path: "{configDir}/.claude/settings.local.json" },
+    {
+      name: "managed",
+      path: "/etc/claude-code/managed-settings.json",
+      platformPaths: {
+        darwin: "/Library/Application Support/ClaudeCode/managed-settings.json",
+        win32: "C:\\ProgramData\\ClaudeCode\\managed-settings.json",
+      },
+    },
+  ],
+  settingsArrays: "concat",
+  // Both reports print text, so each line is read with a pattern. The server
+  // list health-checks approved servers as it prints them; "No MCP servers
+  // configured" is its valid empty answer, not a changed shape.
+  reports: {
+    mcp: {
+      args: ["mcp", "list"],
+      format: "lines",
+      pattern:
+        "^(?<name>\\S.*?): (?<target>.*?) - (?<mark>\\S+) (?<status>.+)$",
+      emptyPattern: "No MCP servers configured",
+    },
+    doctor: {
+      args: ["doctor"],
+      format: "lines",
+      pattern: "^(?<key>[A-Z][^:]*): (?<value>.+)$",
+    },
+  },
+  // Variables under `env` in any settings layer are applied to the session,
+  // over the environment the harness was started in.
+  settingsEnv: "env",
+  // The turn runs on the user's own configuration and login. `--restricted`
+  // ignores the user, project and local settings files while `--settings`
+  // still applies, and `--strict-mcp-config` drops MCP servers; the fixture
+  // hooks arrive in that separate settings file. The transcript is named by
+  // the session id the JSON envelope reports.
+  live: {
+    authCheck: { args: ["auth", "status"], loggedIn: '"loggedIn":\\s*true' },
+    hooksOverlay: { kind: "settings-file", args: ["--settings", "{file}"] },
+    turnArgs: ["--restricted", "--strict-mcp-config"],
+    toolEvents: ["PreToolUse", "PostToolUse"],
+    toolArgs: ["--tools", "Bash", "--allowedTools", "Bash(true)"],
+    plainPrompt: "Reply with the single word: done",
+    toolPrompt:
+      "Use the Bash tool to run the command `true`, then reply with the single word: done",
+    sessionId: { field: "session_id" },
+    configDir: { env: "CLAUDE_CONFIG_DIR", default: "{home}/.claude" },
+    transcript: "projects/*/{session}.jsonl",
+    removeSession: { kind: "file", removeEmptyParent: true },
+  },
   parseOutput(stdout) {
     let envelope: unknown;
     try {
@@ -159,9 +268,45 @@ const codexProfile: HarnessProfile = {
   ],
   outputArgs: ["--json"],
   helpArgs: ["exec", "--help"],
-  // Codex config is TOML (~/.codex/config.toml) and has no JSON settings
-  // hooks, so the settings-file probes have no counterpart there.
-  inapplicableProbes: ["config-key", "hook-registered"],
+  // Codex keeps its hooks in a JSON file (`hooks.json` beside its config) in
+  // the same `hooks.<Event>[].hooks[].command` shape the settings probes
+  // already read, so `config-key` and `hook-registered` apply — a manifest
+  // points `file` at that JSON. Only `config.toml` (TOML) is out of reach.
+  inapplicableProbes: [],
+  // One JSON layer, in the user's own configuration directory. A single-layer
+  // stack still answers the question a probe with `scope: "effective"` asks —
+  // it just answers it with one file, and says so.
+  settingsLayers: [{ name: "user", path: "{home}/.codex/hooks.json" }],
+  settingsArrays: "concat",
+  // Both reports have a JSON form. The doctor keys its checks by id, so the
+  // records are that object's values; each carries its own `id`.
+  reports: {
+    mcp: { args: ["mcp", "list", "--json"], format: "json" },
+    doctor: { args: ["doctor", "--json"], format: "json", records: "checks" },
+    "doctor-summary": { args: ["doctor", "--json"], format: "json" },
+  },
+  // No switch sets the user's hooks file aside, so the fixture hooks arrive as
+  // a command-line config override and the user's own config still loads.
+  // Overlay hooks have no recorded trust, so the turn bypasses hook trust for
+  // this one invocation. Sessions are also indexed outside their files, so
+  // they are removed through the harness's own delete command.
+  live: {
+    authCheck: { args: ["login", "status"], loggedIn: "^Logged in" },
+    hooksOverlay: { kind: "config-override", args: ["-c", "{value}"] },
+    turnArgs: ["--dangerously-bypass-hook-trust"],
+    toolEvents: ["PreToolUse", "PostToolUse"],
+    toolArgs: [],
+    plainPrompt: "Reply with the single word: done",
+    toolPrompt:
+      "Run the shell command `true`, then reply with the single word: done",
+    sessionId: { event: "thread.started", field: "thread_id" },
+    configDir: { env: "CODEX_HOME", default: "{home}/.codex" },
+    transcript: "sessions/**/rollout-*-{session}.jsonl",
+    removeSession: {
+      kind: "command",
+      args: ["delete", "--force", "{session}"],
+    },
+  },
   parseOutput(stdout) {
     let reply: string | null = null;
     let usage: HarnessUsage | null = null;
@@ -192,9 +337,13 @@ const codexProfile: HarnessProfile = {
         const u = e.usage as Record<string, unknown>;
         const num = (v: unknown): number =>
           typeof v === "number" && Number.isFinite(v) ? v : 0;
+        // This stream counts cached tokens inside input_tokens; normalised so
+        // input_tokens is the uncached part, as the other profiles report it —
+        // otherwise a total adds the cache twice.
+        const cached = num(u.cached_input_tokens);
         usage = {
-          input_tokens: num(u.input_tokens),
-          cache_read_tokens: num(u.cached_input_tokens),
+          input_tokens: Math.max(0, num(u.input_tokens) - cached),
+          cache_read_tokens: cached,
           cache_write_tokens: num(u.cache_write_input_tokens),
           output_tokens: num(u.output_tokens),
           model,
@@ -228,7 +377,15 @@ export function profileNames(): string[] {
 export function resolveProfile(
   harness: string,
   harnessProfile?: string,
-  overrides?: Pick<Manifest, "promptArgs" | "outputArgs">,
+  overrides?: Pick<
+    Manifest,
+    | "promptArgs"
+    | "outputArgs"
+    | "settingsLayers"
+    | "settingsArrays"
+    | "reports"
+    | "settingsEnv"
+  >,
 ): HarnessProfile {
   const name = harnessProfile ?? (harness in PROFILES ? harness : "claude");
   const base = PROFILES[name];
@@ -244,7 +401,15 @@ export function resolveProfile(
       `promptArgs must contain the ${PROMPT_PLACEHOLDER} placeholder`,
     );
   }
-  return { ...base, promptArgs, outputArgs };
+  return {
+    ...base,
+    promptArgs,
+    outputArgs,
+    settingsLayers: overrides?.settingsLayers ?? base.settingsLayers,
+    settingsArrays: overrides?.settingsArrays ?? base.settingsArrays,
+    reports: { ...base.reports, ...(overrides?.reports ?? {}) },
+    settingsEnv: overrides?.settingsEnv ?? base.settingsEnv,
+  };
 }
 
 /** Expand a profile argv template: the `{prompt}` element becomes the prompt. */
