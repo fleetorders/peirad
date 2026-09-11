@@ -2,7 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { newestMatch, runProbe, type ProbeContext } from "../src/probes.js";
+import {
+  newestMatch,
+  resolveBinary,
+  runProbe,
+  type ProbeContext,
+} from "../src/probes.js";
 import {
   loadManifest,
   type Manifest,
@@ -682,6 +687,40 @@ describe("command-exists: helper programs", () => {
     const r = runProbe({ type: "command-exists" }, ctx(), []);
     expect(r.probe).toBe("command-exists(true)");
     expect(r.status).toBe("pass");
+  });
+
+  // A manifest is trusted local input, but a harness string that names no
+  // executable must never read as installed — and must never be evaluated as
+  // command syntax on the way to finding out.
+  it("reports drift for shell metacharacters in a harness name, and runs nothing", () => {
+    const r = runProbe(
+      { type: "command-exists", critical: true },
+      { harness: "true; echo PEIRAD_INJECTION_MARKER", configDir: dir },
+      [],
+    );
+    expect(r.status).toBe("blocked");
+    expect(r.detail).toContain("not found on PATH");
+    // Under the old shell lookup this string "resolved" to the injected
+    // command's own output; resolveBinary must return null for it instead.
+    expect(resolveBinary("true; echo PEIRAD_INJECTION_MARKER")).toBeNull();
+  });
+});
+
+describe("resolveBinary", () => {
+  it("resolves a bare name along PATH, without a shell", () => {
+    const p = resolveBinary("sh");
+    expect(p).not.toBeNull();
+    expect(path.isAbsolute(p!)).toBe(true);
+    expect(resolveBinary("peirad-no-such-harness")).toBeNull();
+  });
+
+  it("resolves an absolute path directly", () => {
+    expect(resolveBinary(process.execPath)).toBe(process.execPath);
+  });
+
+  it("never evaluates the harness string as command syntax", () => {
+    expect(resolveBinary("true; echo PEIRAD_INJECTION_MARKER")).toBeNull();
+    expect(resolveBinary("$(touch pwned)")).toBeNull();
   });
 });
 

@@ -56,6 +56,39 @@ export function safeToShow(name: string, value: string): boolean {
 const isSet = (v: string | undefined): v is string =>
   v !== undefined && v !== "";
 
+const isExecutableFile = (p: string): boolean => {
+  try {
+    if (!fs.statSync(p).isFile()) return false;
+    fs.accessSync(p, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** The executable file a value names, and where it is: a bare name is
+ * searched along PATH for an executable file, a value containing a separator
+ * is resolved against `baseDir` and checked directly. Null when nothing is
+ * there. The one lookup `checkPath` and the harness resolution share, so the
+ * two can never disagree about what counts as installed — and no value is
+ * ever handed to a shell on the way, so a name is only ever a name. */
+export function findExecutable(
+  value: string,
+  opts: { baseDir: string; searchPath: string | undefined },
+): string | null {
+  if (!/[/\\]/.test(value)) {
+    for (const dir of (opts.searchPath ?? "")
+      .split(path.delimiter)
+      .filter(Boolean)) {
+      const candidate = path.join(dir, value);
+      if (isExecutableFile(candidate)) return candidate;
+    }
+    return null;
+  }
+  const resolved = path.resolve(opts.baseDir, value);
+  return isExecutableFile(resolved) ? resolved : null;
+}
+
 /** Every variable a set of assertions names, in declaration order. */
 export function envNames(a: EnvAssertions): string[] {
   const names = [
@@ -76,18 +109,9 @@ export function checkPath(
   opts: { baseDir: string; searchPath: string | undefined },
 ): { ok: true } | { ok: false; why: string } {
   if (kind === "executable" && !/[/\\]/.test(value)) {
-    for (const dir of (opts.searchPath ?? "")
-      .split(path.delimiter)
-      .filter(Boolean)) {
-      const candidate = path.join(dir, value);
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        if (fs.statSync(candidate).isFile()) return { ok: true };
-      } catch {
-        // not in this directory
-      }
-    }
-    return { ok: false, why: "is not on PATH" };
+    return findExecutable(value, opts)
+      ? { ok: true }
+      : { ok: false, why: "is not on PATH" };
   }
   const resolved = path.resolve(opts.baseDir, value);
   let st: fs.Stats;

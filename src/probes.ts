@@ -32,7 +32,12 @@ import {
   readReport,
   type HarnessReport,
 } from "./reports.js";
-import { envNames, evaluateEnv, type EnvSource } from "./environment.js";
+import {
+  envNames,
+  evaluateEnv,
+  findExecutable,
+  type EnvSource,
+} from "./environment.js";
 import { listMatches } from "./glob.js";
 import {
   describeLayers,
@@ -126,15 +131,16 @@ export function helpTokens(harness: string, helpArgs: string[]): Set<string> {
   return new Set(out.split(/[\s,=\[\]<>|()]+/).filter((t) => t.length > 0));
 }
 
-/** `command -v <harness>`: the resolved binary path, or null when off PATH. */
+/** The harness binary's own path, or null when there is none: a bare name is
+ * searched along PATH, a path is resolved and checked directly. Never through
+ * a shell — a manifest's `harness` string is only ever a file name to find,
+ * never command syntax to run, so a nonsense string reads as not-installed
+ * (drift) instead of executing and passing. */
 export function resolveBinary(harness: string): string | null {
-  const r = spawnSync("command", ["-v", harness], {
-    shell: true,
-    encoding: "utf8",
+  return findExecutable(harness, {
+    baseDir: process.cwd(),
+    searchPath: process.env.PATH,
   });
-  if (r.status !== 0) return null;
-  const p = (r.stdout ?? "").trim();
-  return p.length > 0 ? p : null;
 }
 
 /** The match with the newest mtime: the transcript the current build wrote,
