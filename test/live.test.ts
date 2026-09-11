@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -489,5 +489,79 @@ describe("pieces of the live run", () => {
     });
     expect(v.results.some((r) => r.probe.startsWith("live"))).toBe(false);
     expect(v.live).toBeUndefined();
+  });
+
+  it("skips a transcript that vanished between listing and stat", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "peirad-find-"));
+    try {
+      const day = path.join(base, "sessions", "2026", "09", "11");
+      fs.mkdirSync(day, { recursive: true });
+      // Both files match the pattern for the same session; the first is made
+      // to vanish at the stat, as a concurrent writer rotating files can do.
+      const gone = path.join(day, "rollout-a-22222222-bbbb.jsonl");
+      const there = path.join(day, "rollout-b-22222222-bbbb.jsonl");
+      fs.writeFileSync(gone, "{}");
+      fs.writeFileSync(there, "{}");
+      const real = fs.statSync;
+      const spy = vi
+        .spyOn(fs, "statSync")
+        .mockImplementation(
+          (
+            (p: unknown, o: unknown) =>
+              p === gone
+                ? (() => {
+                    throw new Error("ENOENT: vanished");
+                  })()
+                : (real as (a: unknown, b: unknown) => ReturnType<typeof real>)(
+                    p,
+                    o,
+                  )
+          ) as unknown as typeof fs.statSync,
+        );
+      try {
+        const found = findSessionTranscript(
+          base,
+          "sessions/**/rollout-*-{session}.jsonl",
+          "22222222-bbbb",
+          Date.now() - 60_000,
+        );
+        expect(path.basename(found!.file)).toBe(
+          "rollout-b-22222222-bbbb.jsonl",
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps every deterministic result when the live step itself fails", () => {
+    const plain = runManifest(claudeManifest(), {
+      configDir: dir,
+      date: "2026-09-11",
+    });
+    const spy = vi.spyOn(fs, "mkdtempSync").mockImplementation(() => {
+      throw new Error("ENOENT: no such file or directory, mkdtemp");
+    });
+    try {
+      const v = run({ FAKE_LOGGED_IN: "1" });
+      const strip = (x: typeof v): typeof v.results =>
+        x.results.filter((r) => !r.probe.startsWith("live"));
+      // The same deterministic verdict the run delivers without --live, plus
+      // one n/a line for the live step — never a lost verdict (D-008).
+      expect(strip(v)).toEqual(strip(plain));
+      expect(v.results.filter((r) => r.probe.startsWith("live"))).toEqual([
+        {
+          probe: "live",
+          status: "n/a",
+          detail: expect.stringContaining("could not complete"),
+        },
+      ]);
+      expect(v.live).toEqual({ turned: false, tokens: null });
+      expect(v.ok).toBe(plain.ok);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

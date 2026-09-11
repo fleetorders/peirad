@@ -123,7 +123,26 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
   }
   let live: Verdict["live"];
   if (opts.live) {
-    const outcome = runLive(manifest, ctx, profile, opts.live);
+    // The live step is the one part of a run that touches the user's real
+    // configuration directory, so it is also the one with failures no fixture
+    // foresaw. A throw here must cost its own line, never the whole verdict:
+    // every deterministic probe result above still holds (D-008, D-024).
+    let outcome: ReturnType<typeof runLive>;
+    try {
+      outcome = runLive(manifest, ctx, profile, opts.live);
+    } catch (e) {
+      outcome = {
+        results: [
+          {
+            probe: "live",
+            status: "n/a",
+            detail: `the live run could not complete: ${String(e)} — the deterministic results in this verdict stand`,
+          },
+        ],
+        tokens: null,
+        turned: false,
+      };
+    }
     results.push(...outcome.results);
     live = { turned: outcome.turned, tokens: outcome.tokens };
   }

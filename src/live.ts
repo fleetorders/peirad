@@ -221,7 +221,12 @@ export function findSessionTranscript(
       } else if (e.isFile()) {
         const rel = path.relative(configDir, full).split(path.sep).join("/");
         if (!matcher.test(rel)) continue;
-        const mtime = fs.statSync(full).mtime;
+        let mtime: Date;
+        try {
+          mtime = fs.statSync(full).mtime;
+        } catch {
+          continue; // vanished between listing and stat — not a verdict
+        }
         if (mtime.getTime() < since - 2_000) continue;
         if (!best || mtime > best.mtime) best = { file: full, mtime };
       }
