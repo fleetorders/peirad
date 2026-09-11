@@ -26,7 +26,7 @@ checked.
 ```
 $ npx peirad --manifest peirad.json
 
-my integration — harness claude 2.1.223 · 2026-08-15
+my integration — harness claude (claude) 2.1.223 · peirad 0.5.0 · 2026-08-15
   ok    command-exists(claude): claude is on PATH
   ok    version: 2.1.223
   ok    flag-accepted(-p,--allowedTools): all flags present in --help

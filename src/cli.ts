@@ -17,7 +17,7 @@ function render(v: Verdict): void {
           ? pc.dim("n/a ")
           : pc.red("BLOCK");
   process.stdout.write(
-    `${pc.bold(v.name)} — harness ${v.harness} (${v.profile}) ${pc.dim(v.version)} · ${v.date}\n`,
+    `${pc.bold(v.name)} — harness ${v.harness} (${v.profile}) ${pc.dim(v.version)} · ${pc.dim(`peirad ${v.checker}`)} · ${v.date}\n`,
   );
   for (const r of v.results) {
     process.stdout.write(`  ${mark(r.status)}  ${r.probe}: ${r.detail}\n`);

@@ -289,6 +289,19 @@ describe("runManifest", () => {
     expect(v.results).toHaveLength(2);
   });
 
+  it("names the checker's own version in the verdict", () => {
+    // Attribution: a wiring that tracks the newest published release learns
+    // which build spoke only from the verdict itself.
+    const pkg = JSON.parse(
+      fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
+    const v = runManifest(
+      { harness: "true", probes: [{ type: "command-exists" }] },
+      { date: "2026-09-11" },
+    );
+    expect(v.checker).toBe(pkg.version);
+  });
+
   it("carries the resolved binary path in the verdict and the detail", () => {
     // `sh` is an on-disk binary everywhere; `true` would resolve to a shell
     // builtin, which `command -v` reports by name, not by path.

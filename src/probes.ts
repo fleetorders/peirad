@@ -17,8 +17,11 @@ import type { ProbeSpec } from "./manifest.js";
 import { resolveProfile } from "./harness-profiles.js";
 
 /** This engine's own version, read from package.json at run time — resolves
- * from both src/ (tests) and dist/ (the built CLI) without bundling it in. */
-const ENGINE_VERSION: string = (() => {
+ * from both src/ (tests) and dist/ (the built CLI) without bundling it in.
+ * Exported because a verdict names the checker that produced it, not just the
+ * harness it checked: a line that changed someone's mind has to be traceable
+ * to a build. */
+export const ENGINE_VERSION: string = (() => {
   try {
     const pkg = createRequire(import.meta.url)("../package.json") as {
       version?: string;

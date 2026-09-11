@@ -8,6 +8,7 @@ import {
   runProbe,
   harnessVersion,
   resolveBinary,
+  ENGINE_VERSION,
   type ProbeResult,
 } from "./probes.js";
 import { resolveProfile } from "./harness-profiles.js";
@@ -21,6 +22,10 @@ export interface Verdict {
   /** Invocation profile the probes ran under ("claude", "codex", …). */
   profile: string;
   version: string;
+  /** The checker's own version — which peirad produced this verdict. A pinned
+   * caller knows it already; one that tracks the newest release does not, and
+   * a verdict nobody can attribute to a build is not evidence. */
+  checker: string;
   date: string;
   results: ProbeResult[];
   degraded: number;
@@ -72,6 +77,7 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
     path: harnessPath ?? undefined,
     profile: profile.name,
     version,
+    checker: ENGINE_VERSION,
     date: opts.date,
     results,
     degraded,
