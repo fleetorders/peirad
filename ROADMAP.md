@@ -21,6 +21,9 @@ than left to rot. What exists today is described in the README, not here.
   isolated configuration directory, opt-in (`--live`). _Shipped 2026-09-11._
 - Name, on every verdict, which probe types the manifest declares and which it
   does not. _Shipped 2026-09-11._
+- Draft the manifest from the project's own files, and report what the code
+  uses but the manifest does not declare (`init`, `--coverage`). _Shipped
+  2026-09-11._
 - A published compatibility matrix per harness (verified-against versions).
 
 ## Next

@@ -25,6 +25,7 @@ import {
 import type { ProbeContext } from "./probes.js";
 import { runLive, type LiveOptions } from "./live.js";
 import { typeCoverage, type TypeCoverage } from "./coverage.js";
+import { compareWithScan, scanProject, type ScanReport } from "./derive.js";
 
 export interface Verdict {
   name: string;
@@ -52,6 +53,9 @@ export interface Verdict {
    * short manifest that passes cannot read like a thorough one. Never counted
    * in `ok`. */
   coverage: TypeCoverage;
+  /** What the project's own files use that no probe declares, and the
+   * reverse — attached when a caller scanned for it. Never counted in `ok`. */
+  scan?: ScanReport;
   /** Present when a live turn was asked for: whether one ran (false means
    * nothing was spent) and the tokens the harness reported for it. */
   live?: { turned: boolean; tokens: number | null };
@@ -237,4 +241,29 @@ export function runLedger(
     opts.label,
   );
   return { ...verdict, notes, baseline: report };
+}
+
+/**
+ * Scan a project's own files and attach what they use that the manifest does
+ * not declare, and what it declares that they never mention. Returns a NEW
+ * verdict whose pass/fail is exactly the run's: the scan proposes, it does not
+ * judge.
+ */
+export function runScanCoverage(
+  manifest: Manifest,
+  verdict: Verdict,
+  opts: { dir: string; label: string },
+): Verdict {
+  const scan = scanProject(opts.dir);
+  const { undeclared, unused } = compareWithScan(manifest, scan);
+  return {
+    ...verdict,
+    scan: {
+      dir: opts.label,
+      scanned: scan.scanned,
+      truncated: scan.truncated,
+      undeclared,
+      unused,
+    },
+  };
 }

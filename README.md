@@ -426,6 +426,68 @@ settings are not written into a committed file), and the field names on the
 newest transcript. A key that is data rather than a name — a file path, an id —
 is recorded as `*` and not followed.
 
+## Deriving the manifest from your code
+
+You rarely know up front everything your integration depends on — but your
+project already says it. Its scripts pass flags to the harness, its settings
+files register hooks, its hook commands call helper programs, its transcript
+readers pull fields out of JSON lines. `peirad init` scans those files and
+drafts the manifest they imply:
+
+```sh
+npx peirad init > peirad.json          # print the draft; or: -o peirad.json (never overwrites)
+npx peirad init --harness codex        # draft for a named harness instead of the one used most
+```
+
+```json
+{
+  "type": "flag-accepted",
+  "flags": ["--output-format", "-p"],
+  "_from": {
+    "--output-format": ["scripts/review.sh:2"],
+    "-p": ["scripts/review.sh:2", "package.json:3"]
+  }
+}
+```
+
+Every entry carries `_from`: the file and line behind it. Keys beginning with
+`_` are comments, so the draft runs as it is — but it is a draft: read it, keep
+what is a real dependency, delete the rest. Write it at the project root, where
+the drafted file paths resolve.
+
+Once a manifest exists, `--coverage` compares it with the same scan on every
+run and names what the code uses that no probe declares, and what a probe
+declares that the files never mention:
+
+```
+$ npx peirad --coverage
+  scan  48 files in .: 2 used but not declared, 1 declared but not found — not counted as drift:
+    + flag --output-format scripts/review.sh:2
+    + hook Stop → notify.sh .claude/settings.json:19
+    - helper rg not in the scanned files — it may live elsewhere, such as a user's own settings
+```
+
+It never changes the exit code. "Not found" means only that: a hook in your own
+user settings is real, and invisible to a scan of the repository.
+
+**The scan is deterministic and uses no model.** Every entry comes from one of
+these rules, so a surprising one can be traced to the line and the rule:
+
+- **Flags** — tokens starting with `-` after `claude` or `codex` on the same
+  line, up to a pipe or `;` (`--help` and `--version` are left out).
+- **Hooks** — `hooks.<Event>[].hooks[].command` in any JSON file, matched by the
+  file name of the script the command runs.
+- **Helper programs** — the program a hook command starts, unless it is a shell
+  or a path.
+- **Transcript fields** — only in files that mention `.jsonl`: paths in a quoted
+  `jq` program, and string keys taken as `["key"]` or `.get("key")`. These can
+  catch keys from other JSON in the same file, and the draft says so.
+
+It reads text files and skips dependencies (`node_modules`, `vendor`), build
+output (`dist`, `build`, `target`) and dot-directories other than `.claude`,
+`.codex`, `.github`, `.githooks` and `.husky`. A flag assembled in a variable
+several lines away is not seen.
+
 ## Harness profiles
 
 Agent CLIs disagree on how to be driven headless: one takes `-p <prompt>

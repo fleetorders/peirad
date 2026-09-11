@@ -53,7 +53,25 @@ export { typeCoverage, describeTypeCoverage } from "./coverage.js";
 export type { TypeCoverage } from "./coverage.js";
 export { runLive } from "./live.js";
 export type { LiveOptions, LiveOutcome, LiveProfile } from "./live.js";
-export { runManifest, observeManifest, runLedger } from "./doctor.js";
+export {
+  scanProject,
+  draftManifest,
+  compareWithScan,
+  likelyHarness,
+} from "./derive.js";
+export type {
+  Scan,
+  ScanCoverage,
+  ScanReport,
+  CoverageItem,
+  Location,
+} from "./derive.js";
+export {
+  runManifest,
+  observeManifest,
+  runLedger,
+  runScanCoverage,
+} from "./doctor.js";
 export type { Verdict, RunOptions, LedgerOptions } from "./doctor.js";
 export {
   BASELINE_FILE,

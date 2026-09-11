@@ -557,3 +557,34 @@ score and has no threshold: an integration may rightly need only two probe
 types, and the line only makes that choice visible. Naming what the project's
 own code uses but never declared is a different question, which needs a scan
 of the code; that lives in its own command rather than on every verdict.
+
+### D-022 — The manifest is derived by a deterministic scan with a line behind every entry, and its coverage report only proposes
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+`peirad init` drafts a manifest from a project's files using a fixed set of
+pattern rules — flags after a harness name, hooks in the JSON hooks shape,
+helper programs those hooks start, transcript fields in code that mentions
+JSON lines — and writes the file and line behind every entry into a `_from`
+comment key. It never overwrites a file. `run --coverage` compares a manifest
+with the same scan and reports both directions — used but undeclared, declared
+but not found — without touching the exit code. No model reads the code.
+
+**Why:** an integration's dependencies are already written down in the code
+that has them; asking a maintainer to restate them from memory is why manifests
+stay thin. A model could read the code more cleverly, but a proposal nobody can
+trace to a line is a guess, and a checker built on "silent failure is the
+enemy" cannot hand out untraceable entries. Rules that fit in one file are
+predictable: the same project always drafts the same manifest, and a wrong
+entry points at the rule that produced it. The comparison stays out of the exit
+code because the scan sees only the repository — a hook in a user's own
+settings is a real dependency the scan cannot see — so its findings are
+proposals for a maintainer, not verdicts.
+
+**Consequences:** some dependencies are invisible to the rules — a flag
+assembled in a variable lines away, a harness invoked through a wrapper with a
+different name — and some findings are noise, most of all transcript fields
+taken from other JSON in the same file; the draft labels that entry. The `_from`
+key relies on the comment convention from D-014, so a drafted manifest runs
+unchanged on this build and warns nothing under `validate`. Drafted file paths
+are relative to the scanned directory, so the draft belongs at its root.

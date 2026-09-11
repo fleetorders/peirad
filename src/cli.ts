@@ -3,7 +3,18 @@ import pc from "picocolors";
 import fs from "node:fs";
 import path from "node:path";
 import { loadManifest } from "./manifest.js";
-import { runLedger, runManifest, type Verdict } from "./doctor.js";
+import {
+  runLedger,
+  runManifest,
+  runScanCoverage,
+  type Verdict,
+} from "./doctor.js";
+import {
+  draftManifest,
+  likelyHarness,
+  scanProject,
+  type CoverageItem,
+} from "./derive.js";
 import { BASELINE_FILE, type Moved } from "./baseline.js";
 import { describeTypeCoverage } from "./coverage.js";
 import { triageCommand } from "./triage.js";
@@ -25,6 +36,7 @@ function render(v: Verdict): void {
     process.stdout.write(`  ${mark(r.status)}  ${r.probe}: ${r.detail}\n`);
   }
   if (v.baseline) renderLedger(v);
+  if (v.scan) renderScan(v);
   for (const note of v.notes) {
     process.stdout.write(`  ${pc.dim("note")}  ${pc.dim(note)}\n`);
   }
@@ -76,6 +88,44 @@ function renderLedger(v: Verdict): void {
   }
 }
 
+function renderScan(v: Verdict): void {
+  const s = v.scan!;
+  const head = `${s.scanned} files in ${s.dir}${s.truncated ? " (stopped at the file limit)" : ""}`;
+  if (s.undeclared.length === 0 && s.unused.length === 0) {
+    process.stdout.write(
+      `  ${pc.dim("scan")}  ${pc.dim(`${head}: everything the files use is declared, and everything declared is used`)}\n`,
+    );
+    return;
+  }
+  process.stdout.write(
+    `  ${pc.cyan("scan")}  ${head}: ${s.undeclared.length} used but not declared, ${s.unused.length} declared but not found — not counted as drift:\n`,
+  );
+  const line = (sign: string, item: CoverageItem, where: string): string =>
+    `    ${pc.cyan(sign)} ${item.kind} ${item.name} ${pc.dim(where)}`;
+  const lines = [
+    ...s.undeclared.map((u) =>
+      line(
+        "+",
+        u,
+        `${u.at[0] ?? ""}${u.at.length > 1 ? ` (+${u.at.length - 1} more)` : ""}`,
+      ),
+    ),
+    ...s.unused.map((u) =>
+      line(
+        "-",
+        u,
+        "not in the scanned files — it may live elsewhere, such as a user's own settings",
+      ),
+    ),
+  ];
+  for (const l of lines.slice(0, LEDGER_LINES)) process.stdout.write(`${l}\n`);
+  if (lines.length > LEDGER_LINES) {
+    process.stdout.write(
+      `    ${pc.dim(`… ${lines.length - LEDGER_LINES} more — see --json`)}\n`,
+    );
+  }
+}
+
 const program = new Command();
 program
   .name("peirad")
@@ -105,6 +155,14 @@ program
     "--live",
     "also drive the harness through one real turn in an isolated configuration directory (spends tokens)",
   )
+  .option(
+    "--coverage",
+    "scan the project's own files for what they use that the manifest does not declare, and the reverse",
+  )
+  .option(
+    "--scan-dir <dir>",
+    "directory --coverage scans (default: the manifest's directory)",
+  )
   .option("--live-ceiling <tokens>", "token ceiling for the live turn", "10000")
   .option(
     "--live-timeout <seconds>",
@@ -121,6 +179,8 @@ program
       live?: boolean;
       liveCeiling: string;
       liveTimeout: string;
+      coverage?: boolean;
+      scanDir?: string;
     }) => {
       const mfPath = path.resolve(opts.manifest);
       if (!fs.existsSync(mfPath)) {
@@ -171,6 +231,13 @@ program
             date,
           });
         }
+        if (opts.coverage) {
+          const dir = path.resolve(opts.scanDir ?? path.dirname(mfPath));
+          verdict = runScanCoverage(manifest, verdict, {
+            dir,
+            label: path.relative(process.cwd(), dir) || ".",
+          });
+        }
       } catch (e) {
         process.stderr.write(`peirad: ${String(e)}\n`);
         process.exit(2);
@@ -181,6 +248,54 @@ program
       process.exit(verdict.ok ? 0 : 1);
     },
   );
+
+program
+  .command("init")
+  .description(
+    "draft a manifest from the project's own files — a deterministic scan, no model",
+  )
+  .option("-d, --dir <dir>", "project directory to scan", ".")
+  .option(
+    "--harness <name>",
+    "harness to draft for (default: the one the project uses most)",
+  )
+  .option(
+    "-o, --output <file>",
+    "write the draft to this file instead of printing it (never overwrites)",
+  )
+  .action((opts: { dir: string; harness?: string; output?: string }) => {
+    const dir = path.resolve(opts.dir);
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      process.stderr.write(`peirad: not a directory: ${opts.dir}\n`);
+      process.exit(2);
+    }
+    const scan = scanProject(dir);
+    const harness = opts.harness ?? likelyHarness(scan);
+    if (!harness) {
+      process.stderr.write(
+        `peirad: scanned ${scan.scanned} files and found no harness invocation or hook — pass --harness to draft anyway\n`,
+      );
+      process.exit(2);
+    }
+    const draft = draftManifest(scan, harness, path.basename(dir));
+    const text = `${JSON.stringify(draft, null, 2)}\n`;
+    const summary = `drafted ${draft.probes.length} probes for ${harness} from ${scan.scanned} files${scan.truncated ? " (stopped at the file limit)" : ""} — each carries _from, the file and line behind it; review before relying on it`;
+    if (opts.output) {
+      const out = path.resolve(opts.output);
+      if (fs.existsSync(out)) {
+        process.stderr.write(
+          `peirad: ${opts.output} exists — refusing to overwrite it\n`,
+        );
+        process.exit(2);
+      }
+      fs.writeFileSync(out, text);
+      process.stderr.write(`${summary}\nwrote ${opts.output}\n`);
+    } else {
+      process.stdout.write(text);
+      process.stderr.write(`${summary}\n`);
+    }
+    process.exit(0);
+  });
 
 program
   .command("triage")
