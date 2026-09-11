@@ -17,6 +17,8 @@ than left to rot. What exists today is described in the README, not here.
 - Assert the environment contract around the harness — variables set, unset,
   holding a value, pointing at a real file — without printing secrets (`env`).
   _Shipped 2026-09-11._
+- Prove the declared hooks, transcript fields and flags in one real turn, in an
+  isolated configuration directory, opt-in (`--live`). _Shipped 2026-09-11._
 - A published compatibility matrix per harness (verified-against versions).
 
 ## Next

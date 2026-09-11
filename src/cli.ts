@@ -97,6 +97,16 @@ program
     `baseline to compare against or record to (default: ${BASELINE_FILE} beside the manifest)`,
   )
   .option("--no-baseline", "skip the baseline comparison even if one exists")
+  .option(
+    "--live",
+    "also drive the harness through one real turn in an isolated configuration directory (spends tokens)",
+  )
+  .option("--live-ceiling <tokens>", "token ceiling for the live turn", "10000")
+  .option(
+    "--live-timeout <seconds>",
+    "kill the live turn after this long",
+    "180",
+  )
   .action(
     (opts: {
       manifest: string;
@@ -104,6 +114,9 @@ program
       json?: boolean;
       recordBaseline?: boolean;
       baseline?: string | false;
+      live?: boolean;
+      liveCeiling: string;
+      liveTimeout: string;
     }) => {
       const mfPath = path.resolve(opts.manifest);
       if (!fs.existsSync(mfPath)) {
@@ -115,9 +128,29 @@ program
       const configDir =
         opts.configDir ?? manifest.configDir ?? path.dirname(mfPath);
       const date = new Date().toISOString().slice(0, 10);
+      const ceiling = Number(opts.liveCeiling);
+      const timeout = Number(opts.liveTimeout);
+      if (
+        opts.live &&
+        !(
+          Number.isFinite(ceiling) &&
+          ceiling > 0 &&
+          Number.isFinite(timeout) &&
+          timeout > 0
+        )
+      ) {
+        process.stderr.write(
+          `peirad: --live-ceiling and --live-timeout must be positive numbers\n`,
+        );
+        process.exit(2);
+      }
       let verdict: Verdict;
       try {
-        verdict = runManifest(manifest, { configDir, date });
+        verdict = runManifest(manifest, {
+          configDir,
+          date,
+          live: opts.live ? { ceiling, timeoutMs: timeout * 1000 } : undefined,
+        });
         // The ledger is opt-out once a baseline exists and opt-in to write;
         // either way it never touches the exit code below.
         if (opts.baseline !== false || opts.recordBaseline) {

@@ -9,6 +9,7 @@
  */
 import type { Manifest } from "./manifest.js";
 import type { HarnessReport } from "./reports.js";
+import type { LiveProfile } from "./live.js";
 
 /**
  * Token/cost accounting the harness reported alongside its reply, normalized
@@ -97,6 +98,12 @@ export interface HarnessProfile {
    * has no such block in a file peirad can read.
    */
   settingsEnv?: string;
+  /**
+   * How to drive this harness through one isolated turn for `--live`: the
+   * variable that relocates its configuration, a no-cost login check, where
+   * fixture hooks and the transcript go. Absent, a live run reports `n/a`.
+   */
+  live?: LiveProfile;
   /** Turn the harness's stdout into the reply text + usage. */
   parseOutput(stdout: string): ProfileParse;
 }
@@ -204,6 +211,20 @@ const claudeProfile: HarnessProfile = {
   // Variables under `env` in any settings layer are applied to the session,
   // over the environment the harness was started in.
   settingsEnv: "env",
+  // The configuration directory moves with one variable; the fixture hooks go
+  // in its user settings. `auth status` prints JSON and costs nothing.
+  live: {
+    configDirEnv: "CLAUDE_CONFIG_DIR",
+    authCheck: { args: ["auth", "status"], loggedIn: '"loggedIn":\\s*true' },
+    hooksFile: "settings.json",
+    transcriptGlob: "projects/**/*.jsonl",
+    toolEvents: ["PreToolUse", "PostToolUse"],
+    turnArgs: ["--strict-mcp-config"],
+    toolArgs: ["--allowedTools", "Bash(true)"],
+    plainPrompt: "Reply with the single word: done",
+    toolPrompt:
+      "Use the Bash tool to run the command `true`, then reply with the single word: done",
+  },
   parseOutput(stdout) {
     let envelope: unknown;
     try {
@@ -258,6 +279,21 @@ const codexProfile: HarnessProfile = {
     mcp: { args: ["mcp", "list", "--json"], format: "json" },
     doctor: { args: ["doctor", "--json"], format: "json", records: "checks" },
     "doctor-summary": { args: ["doctor", "--json"], format: "json" },
+  },
+  // The home directory moves with one variable and holds the hooks file.
+  // Hooks there need trust the fresh home has never recorded; the bypass is
+  // scoped to this one invocation, whose only hook is peirad's own fixture.
+  live: {
+    configDirEnv: "CODEX_HOME",
+    authCheck: { args: ["login", "status"], loggedIn: "^Logged in" },
+    hooksFile: "hooks.json",
+    transcriptGlob: "sessions/**/*.jsonl",
+    toolEvents: ["PreToolUse", "PostToolUse"],
+    turnArgs: ["--dangerously-bypass-hook-trust"],
+    toolArgs: [],
+    plainPrompt: "Reply with the single word: done",
+    toolPrompt:
+      "Run the shell command `true`, then reply with the single word: done",
   },
   parseOutput(stdout) {
     let reply: string | null = null;

@@ -23,6 +23,7 @@ import {
   type Surface,
 } from "./baseline.js";
 import type { ProbeContext } from "./probes.js";
+import { runLive, type LiveOptions } from "./live.js";
 
 export interface Verdict {
   name: string;
@@ -46,6 +47,9 @@ export interface Verdict {
   /** What moved since the recorded baseline that no probe declares — a third
    * register, attached by a caller that compared one. Never counted in `ok`. */
   baseline?: BaselineReport;
+  /** Present when a live turn was asked for: whether one ran (false means
+   * nothing was spent) and the tokens the harness reported for it. */
+  live?: { turned: boolean; tokens: number | null };
   degraded: number;
   blocked: number;
   /** Probes that cannot apply to this harness family (declared, not passed). */
@@ -58,6 +62,9 @@ export interface RunOptions {
   configDir?: string;
   /** ISO date stamp for the verdict; caller supplies it (keeps this pure/testable). */
   date: string;
+  /** Drive the harness through one real turn as well. Off unless given:
+   * it is the one check that spends tokens. */
+  live?: LiveOptions;
 }
 
 /** Everything a run resolves once before any probe looks: the profile (with
@@ -105,6 +112,12 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
   for (const spec of manifest.probes) {
     results.push(runProbe(spec, ctx, versionArgs));
   }
+  let live: Verdict["live"];
+  if (opts.live) {
+    const outcome = runLive(manifest, ctx, profile, opts.live);
+    results.push(...outcome.results);
+    live = { turned: outcome.turned, tokens: outcome.tokens };
+  }
 
   // A manifest-level key this build does not know is config, not an assertion:
   // it is named so the reader knows the setting had no effect, and the exit
@@ -130,6 +143,7 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
     date: opts.date,
     notes,
     results,
+    ...(live ? { live } : {}),
     degraded,
     blocked,
     na,

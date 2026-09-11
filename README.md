@@ -336,6 +336,52 @@ Relative `file`/`glob` paths resolve against the manifest's directory, or pass
 `--config-dir` to point at your harness config location. Add `--json` for a
 machine-readable verdict.
 
+## Proving it in one real turn
+
+Every probe above reads what the harness left behind: its help text, its
+settings, an old transcript. `--live` makes it do the work — one minimal
+headless turn — and checks what that turn produced:
+
+```sh
+npx peirad --live                      # a ceiling of 10000 tokens by default
+npx peirad --live --live-ceiling 20000 --live-timeout 300
+```
+
+```
+ok    live:login: a login resolves inside the isolated configuration directory (claude auth status)
+ok    live:turn: one turn completed · the harness reported model … (information, not checked)
+ok    live:ceiling: … tokens, within the ceiling of 10000
+ok    live:flags: accepted by a real invocation: -p, --output-format
+ok    live:transcript-field(projects/**/*.jsonl): fields present (type, message) …
+BLOCK live:hook-fired(PreToolUse): a fixture hook on PreToolUse was registered and did not run during a real turn
+```
+
+- **Hooks come from your manifest.** For every event a `hook-registered` probe
+  declares, peirad registers a fixture hook of its own and checks that it ran.
+  Hooks already in your settings are never used: installing whatever is
+  configured would prove nothing about what you declared. When a declared
+  event fires only around a tool call, the turn asks for one harmless tool call.
+- **The transcript is the one this turn wrote.** Your `transcript-field`
+  declarations are read from it, not from whichever old file is newest.
+- **Flags are proven by the real invocation** where the turn carries them; the
+  rest stay checked against `--help`, and the line says which.
+- **A failure takes the register of the probe it proves** — a hook that did not
+  fire is `blocked` when its `hook-registered` probe is `critical`.
+
+It is off by default, because it is the only check that spends tokens. The turn
+runs in a fresh temporary configuration directory that is removed afterwards,
+and nothing is copied into it — not your settings, and never a credential. So
+before any turn, peirad asks the harness whether it has a login there, which
+costs nothing. **A harness signed in only through its default configuration
+directory has none**, and the run stops at `live:login` with `n/a`: give the
+harness a login it reads from the environment and run again. The ceiling is
+compared with the usage the harness reports after the turn — a turn cannot be
+stopped at a token count part-way — and `--live-timeout` kills a turn that runs
+long. The model the harness reports is shown as information and never checked.
+The fixture hook is a POSIX shell script. Under the codex profile the turn
+passes `--dangerously-bypass-hook-trust`: the fresh directory has never
+recorded trust, and its only hook is peirad's own fixture.
+
 ## What moved that you never declared
 
 A verdict answers "does what I declared still hold?". It cannot tell you what

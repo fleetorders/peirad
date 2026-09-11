@@ -494,3 +494,42 @@ checks peirad's own environment, which matches the harness's only when both are
 started from the same place — a harness launched by a desktop app or a service
 manager may see a different environment, and running the check from where the
 harness runs is the fix, as for every other probe.
+
+### D-020 — The live turn copies nothing into its isolated directory, and refuses before spending when it finds no login there
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+`--live` drives the harness through one headless turn in a fresh temporary
+configuration directory, removed afterwards. The fixture hooks it registers are
+derived from the manifest's `hook-registered` probes, never from the user's
+settings. Nothing is copied into the directory: not settings, and never a
+credential. Before the turn, a login check that spends nothing runs inside the
+directory; when it finds no login, the live run reports `n/a` and stops. The
+token ceiling is compared with the usage the harness reports once the turn
+ends; a timeout bounds the turn's duration. A failed live check takes the
+register of the manifest probe it proves. How a harness is driven is profile
+data (`live`).
+
+**Why:** the point of a live turn is to prove what the manifest declares, so
+the hooks under test must be the declared ones — installing the hooks a user
+already has would make every run pass on whatever happens to be configured.
+Isolation is what makes the run safe to repeat: a fixture hook written into a
+user's real settings is a change to their harness, which this tool does not
+make. The same isolation is why credentials stay out. A harness whose login is
+tied to its default configuration directory has no login in a fresh one, and
+the only ways around that inside the directory are to copy the credential in or
+to point the run at the user's real directory; the first spreads a secret into
+a temporary tree, the second gives up the isolation. Refusing at a check that
+costs nothing turns that into a line the reader can act on, before a single
+token is spent. The ceiling cannot be enforced part-way through a turn, so it
+is honest to compare after rather than to promise a cap.
+
+**Consequences:** a user signed in only through the harness's default
+configuration directory cannot use `--live` until the harness has a login it
+reads from the environment. A single turn can exceed a small ceiling on its own
+(a harness's system prompt and tool descriptions count), and the verdict then
+says so. Flags the turn does not carry remain checked against help text only.
+The turn's extra arguments and prompts are declared from each harness's help
+text; if a build rejects one, `live:turn` fails naming the harness's own error.
+The codex profile passes that harness's hook-trust bypass, scoped to the one
+invocation whose only hook is peirad's fixture.
