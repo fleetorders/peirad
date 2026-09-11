@@ -3,7 +3,7 @@
  * live install, and return a dated verdict that NAMES the version it checked —
  * so "does it still hold?" has an answer with a timestamp, not a shrug.
  */
-import type { Manifest } from "./manifest.js";
+import { unknownManifestFields, type Manifest } from "./manifest.js";
 import {
   runProbe,
   harnessVersion,
@@ -27,6 +27,10 @@ export interface Verdict {
    * a verdict nobody can attribute to a build is not evidence. */
   checker: string;
   date: string;
+  /** Lines about the run itself rather than about the integration — a
+   * manifest key this build does not understand, for instance. Notes never
+   * change the exit code: they describe the checker, not the contract. */
+  notes: string[];
   results: ProbeResult[];
   degraded: number;
   blocked: number;
@@ -51,21 +55,29 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
     manifest,
   );
   const harnessPath = resolveBinary(manifest.harness);
+  const version = harnessVersion(manifest.harness, versionArgs);
   const ctx = {
     harness: manifest.harness,
     configDir,
     profileName: profile.name,
     harnessPath,
+    harnessVersion: version,
   };
 
-  const version = harnessVersion(manifest.harness, versionArgs);
   const results: ProbeResult[] = [];
   for (const spec of manifest.probes) {
-    if (spec.type === "version") {
-      results.push({ probe: "version", status: "pass", detail: version });
-      continue;
-    }
     results.push(runProbe(spec, ctx, versionArgs));
+  }
+
+  // A manifest-level key this build does not know is config, not an assertion:
+  // it is named so the reader knows the setting had no effect, and the exit
+  // code is left alone (the skipped-assertion case lives on the probe itself).
+  const notes: string[] = [];
+  const unknownKeys = unknownManifestFields(manifest);
+  if (unknownKeys.length > 0) {
+    notes.push(
+      `manifest keys ignored by peirad ${ENGINE_VERSION}: ${unknownKeys.join(", ")} — upgrade peirad to honour them`,
+    );
   }
 
   const degraded = results.filter((r) => r.status === "degraded").length;
@@ -79,6 +91,7 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
     version,
     checker: ENGINE_VERSION,
     date: opts.date,
+    notes,
     results,
     degraded,
     blocked,

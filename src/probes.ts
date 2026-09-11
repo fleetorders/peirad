@@ -13,7 +13,7 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import type { ProbeSpec } from "./manifest.js";
+import { unknownProbeFields, type ProbeSpec } from "./manifest.js";
 import { resolveProfile } from "./harness-profiles.js";
 
 /** This engine's own version, read from package.json at run time — resolves
@@ -49,6 +49,9 @@ export interface ProbeContext {
   /** Resolved binary path (`command -v`), taken once by the runner; the
    * command-exists probe re-resolves when a direct caller omits it. */
   harnessPath?: string | null;
+  /** Version string the runner already read, so the `version` probe reports it
+   * without spawning the harness a second time. */
+  harnessVersion?: string;
 }
 
 const fail = (spec: { critical?: boolean }): ProbeStatus =>
@@ -147,11 +150,46 @@ function getDotted(obj: unknown, key: string): unknown {
   return cur;
 }
 
+/** Deep JSON equality — an expected value is met exactly, not approximately.
+ * A caller that wants to assert one field of an object points at that field
+ * with a dotted key instead of half-matching the whole object. */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+      return false;
+    }
+    return a.every((x, i) => deepEqual(x, b[i]));
+  }
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const ao = a as Record<string, unknown>;
+    const bo = b as Record<string, unknown>;
+    const ka = Object.keys(ao);
+    return (
+      ka.length === Object.keys(bo).length &&
+      ka.every((k) => k in bo && deepEqual(ao[k], bo[k]))
+    );
+  }
+  return false;
+}
+
+/** A config value as it appears in a verdict line: JSON, kept short enough
+ * that a nested object cannot push the finding off the edge of the report. */
+function show(value: unknown, maxChars = 60): string {
+  let text: string;
+  try {
+    text = JSON.stringify(value) ?? String(value);
+  } catch {
+    text = String(value);
+  }
+  return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+}
+
 /** The label a probe reports itself under, mirroring the per-case labels. */
 function probeLabel(spec: ProbeSpec, harness: string): string {
   switch (spec.type) {
     case "command-exists":
-      return `command-exists(${harness})`;
+      return `command-exists(${spec.command ?? harness})`;
     case "version":
       return "version";
     case "flag-accepted":
@@ -181,7 +219,38 @@ export function fold(out: string, maxLines = 3, maxChars = 300): string {
   return joined.length > maxChars ? `${joined.slice(0, maxChars)}…` : joined;
 }
 
+/**
+ * Run one probe and report what its declared assertions did — including the
+ * ones this build could not make.
+ *
+ * A manifest may carry a field an older engine has never heard of. Skipping it
+ * silently would hand back a `pass` for an assertion nobody checked, which is
+ * the exact failure this tool exists to catch, so a probe that passed while
+ * skipping a declared field reports `degraded` and names the field. It is
+ * never `blocked`, however critical the probe: an out-of-date checker is not
+ * drift in the harness, and the fix is an upgrade rather than an investigation
+ * (D-014). An unknown probe TYPE is a different case, already answered by
+ * D-008: nothing about it is understood, so it renders `n/a`.
+ */
 export function runProbe(
+  spec: ProbeSpec,
+  ctx: ProbeContext,
+  versionArgs: string[],
+): ProbeResult {
+  const result = runKnownProbe(spec, ctx, versionArgs);
+  const unknown = unknownProbeFields(spec);
+  if (unknown.length === 0) return result;
+  const count = `${unknown.length} declared ${unknown.length === 1 ? "assertion" : "assertions"}`;
+  return {
+    ...result,
+    status: result.status === "pass" ? "degraded" : result.status,
+    detail:
+      `${result.detail} — ${count} skipped: peirad ${ENGINE_VERSION} does not understand ` +
+      `${unknown.join(", ")} on a ${spec.type} probe; upgrade peirad`,
+  };
+}
+
+function runKnownProbe(
   spec: ProbeSpec,
   ctx: ProbeContext,
   versionArgs: string[],
@@ -197,20 +266,24 @@ export function runProbe(
   }
   switch (spec.type) {
     case "command-exists": {
+      // `command` names a helper program the integration shells out to; absent
+      // it, the probe checks the harness itself (its original meaning).
+      const target = spec.command ?? ctx.harness;
+      const isHarness = target === ctx.harness;
       const resolved =
-        ctx.harnessPath !== undefined
+        isHarness && ctx.harnessPath !== undefined
           ? ctx.harnessPath
-          : resolveBinary(ctx.harness);
+          : resolveBinary(target);
       return {
-        probe: `command-exists(${ctx.harness})`,
+        probe: `command-exists(${target})`,
         status: resolved ? "pass" : fail(spec),
         detail: resolved
-          ? `${ctx.harness} is on PATH (${resolved})`
-          : `${ctx.harness} not found on PATH`,
+          ? `${target} is on PATH (${resolved})`
+          : `${target} not found on PATH${isHarness ? "" : " — declared as a helper program"}`,
       };
     }
     case "version": {
-      const v = harnessVersion(ctx.harness, versionArgs);
+      const v = ctx.harnessVersion ?? harnessVersion(ctx.harness, versionArgs);
       return { probe: "version", status: "pass", detail: v };
     }
     case "flag-accepted": {
@@ -252,16 +325,66 @@ export function runProbe(
           detail: `unparseable JSON: ${String(e)}`,
         };
       }
-      const missing = spec.keys.filter(
-        (k) => getDotted(parsed, k) === undefined,
-      );
+      // Three assertions over one file, reported together: the keys that must
+      // exist, the values they must hold, and the names that must NOT exist.
+      // Every failing one is named — a wrong value never hides a leftover key.
+      const held: string[] = [];
+      const problems: string[] = [];
+
+      const keys = spec.keys ?? [];
+      if (keys.length > 0) {
+        const missing = keys.filter((k) => getDotted(parsed, k) === undefined);
+        if (missing.length === 0) held.push(`keys present: ${keys.join(", ")}`);
+        else problems.push(`missing keys: ${missing.join(", ")}`);
+      }
+
+      const expected = Object.entries(spec.expect ?? {});
+      if (expected.length > 0) {
+        const wrong: string[] = [];
+        for (const [key, want] of expected) {
+          const got = getDotted(parsed, key);
+          if (got === undefined) {
+            wrong.push(`${key} is absent (expected ${show(want)})`);
+          } else if (!deepEqual(got, want)) {
+            wrong.push(`${key} is ${show(got)} (expected ${show(want)})`);
+          }
+        }
+        if (wrong.length === 0) {
+          held.push(`values match: ${expected.map(([k]) => k).join(", ")}`);
+        } else {
+          problems.push(wrong.join("; "));
+        }
+      }
+
+      const absent = spec.absent ?? [];
+      if (absent.length > 0) {
+        const leftover = absent.filter(
+          (k) => getDotted(parsed, k) !== undefined,
+        );
+        if (leftover.length === 0) {
+          held.push(`absent as declared: ${absent.join(", ")}`);
+        } else {
+          // The key the harness no longer reads is still in the file, so the
+          // setting looks configured while the feature runs at its default.
+          problems.push(
+            `declared absent but present: ${leftover
+              .map((k) => `${k} = ${show(getDotted(parsed, k))}`)
+              .join(", ")}`,
+          );
+        }
+      }
+
+      if (held.length === 0 && problems.length === 0) {
+        return {
+          probe: `config-key(${spec.file})`,
+          status: "n/a",
+          detail: `nothing declared — the probe needs "keys", "expect" or "absent"`,
+        };
+      }
       return {
         probe: `config-key(${spec.file})`,
-        status: missing.length === 0 ? "pass" : fail(spec),
-        detail:
-          missing.length === 0
-            ? `keys present: ${spec.keys.join(", ")}`
-            : `missing keys: ${missing.join(", ")}`,
+        status: problems.length === 0 ? "pass" : fail(spec),
+        detail: (problems.length === 0 ? held : problems).join(" · "),
       };
     }
     case "transcript-field": {

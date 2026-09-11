@@ -54,19 +54,77 @@ check.
 
 You declare probes; each runs against the live harness:
 
-| Probe              | Confirms                                                      |
-| ------------------ | ------------------------------------------------------------- |
-| `command-exists`   | the harness binary is on PATH                                 |
-| `version`          | the installed version (stamped into the verdict)              |
-| `flag-accepted`    | the CLI flags your automation passes still parse              |
-| `config-key`       | the settings keys you rely on still exist                     |
-| `hook-registered`  | your hook is still wired for its event                        |
-| `transcript-field` | the fields your tool reads from transcripts are still present |
-| `script`           | a repo-provided check still passes                            |
+| Probe              | Confirms                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| `command-exists`   | the harness binary — or a helper program — is on PATH                                                    |
+| `version`          | the installed version (stamped into the verdict)                                                         |
+| `flag-accepted`    | the CLI flags your automation passes still parse                                                         |
+| `config-key`       | the settings you rely on exist, hold the value you expect, and the names you migrated away from are gone |
+| `hook-registered`  | your hook is still wired for its event                                                                   |
+| `transcript-field` | the fields your tool reads from transcripts are still present                                            |
+| `script`           | a repo-provided check still passes                                                                       |
 
 A non-critical probe that drifts reports `degraded`; a probe marked `critical`
 reports `blocked`; a probe its [harness profile](#harness-profiles) says
 cannot apply reports `n/a`. Nothing throws — one drift never hides the next.
+
+### Asserting a value, not just a key
+
+A key that still exists tells you little: an update can migrate it, rename it,
+or switch what it defaults to, and the feature goes quiet with nothing in the
+log. `config-key` therefore takes three declarations, in any combination:
+
+```json
+{
+  "type": "config-key",
+  "file": "settings.json",
+  "keys": ["hooks.PreToolUse"],
+  "expect": { "voice.enabled": true, "permissions.defaultMode": "acceptEdits" },
+  "absent": ["voice.enable"]
+}
+```
+
+- `keys` — these paths must exist, with any value.
+- `expect` — each path must hold exactly this value (compared deeply, so an
+  object or array must match entirely; to assert one field of an object, point
+  at that field with a dotted path).
+- `absent` — these paths must _not_ exist. This is how you catch the leftover
+  twin of a renamed setting: the old name still parses and still looks
+  configured, while the harness reads the new one and runs at its default.
+
+Every declaration is reported, so a wrong value never hides a leftover key:
+
+```
+DEGR  config-key(settings.json): voice.enabled is false (expected true) · declared absent but present: voice.enable = true
+```
+
+A feature that shells out to another program declares it, so "installed, but
+its helper is gone" stops reading as healthy:
+
+```json
+{ "type": "command-exists", "command": "jq", "critical": true }
+```
+
+peirad does not re-implement your harness's own schema validation. If the
+harness ships a doctor that reports unknown keys and bad types headless, use
+it — what peirad adds is the assertion _your integration_ depends on, which no
+harness knows about.
+
+### When your manifest is newer than your peirad
+
+A manifest may name a field an installed peirad has never heard of. The run
+does not refuse it and does not quietly drop it: the probe runs everything it
+understands, reports `degraded`, and names what it skipped.
+
+```
+DEGR  config-key(settings.json): keys present: hooks.PreToolUse — 1 declared assertion skipped: peirad 0.4.0 does not understand absent on a config-key probe; upgrade peirad
+```
+
+It is never `blocked`, however critical the probe — an out-of-date checker is
+not drift in your harness, and the fix is an upgrade, not an investigation. An
+unknown probe _type_ reports `n/a` the same way. Keys beginning with `_` are
+comments and are never reported. To refuse unknown fields outright instead —
+in CI, or to catch a typo — see [`peirad validate`](#validate-the-manifest).
 
 The `script` probe runs an executable from the repo the manifest lives in:
 exit 0 passes, exit 1 fails with the script's stdout as the finding, and

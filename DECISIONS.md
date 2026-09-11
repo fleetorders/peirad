@@ -309,3 +309,55 @@ of the projects that check with it. That is a deliberate asymmetry — real drif
 still blocks, an absent checker never does. A release remains how a machine
 without the checkout gets the work, and how anyone else does; it is no longer
 how the checked projects get it.
+
+### D-014 — A declared assertion this build cannot make is `degraded`, never a silent pass
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+A probe may carry a field the installed engine does not understand — a manifest
+written for a newer release, run by an older install. The probe still runs every
+assertion it does understand, then reports `degraded` and names the field it
+skipped and the engine version that did not know it. It is never `blocked`,
+however `critical` the probe. Manifest-level keys the build does not know are
+reported as a note instead and leave the exit code alone. A key beginning with
+`_` is a comment, never a field. The strict counterpart is `peirad validate`,
+which refuses an unknown field outright.
+
+**Why:** D-008 settled the neighbouring case — an unknown probe _type_ renders
+`n/a`, because nothing about it was understood and nothing was claimed. An
+unknown _field_ is the opposite shape: the probe runs, finds the part it
+understands intact, and would hand back `pass` — a pass for an assertion nobody
+made. That is precisely the silent failure this tool exists to catch, and it
+would be this tool producing it. `blocked` would be the wrong register in the
+other direction: it says a dependency broke, and would send a reader looking
+for drift in a harness that is fine. What actually happened is that the checker
+is old.
+
+**Consequences:** an older engine meeting a newer manifest exits non-zero, and
+the line says the fix is an upgrade rather than an investigation. That is a
+deliberate cost: a team on mixed versions sees the split the day it appears
+instead of trusting a partial check. Every probe type must keep its field list
+in `PROBE_FIELDS` current — a field missing from that table reads as unknown to
+its own build, which makes the table a gate on adding one.
+
+### D-015 — A helper program is declared on the probe that already asks about PATH
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+A feature that shells out to another program declares it as `command` on a
+`command-exists` probe, rather than getting a probe type of its own. A probe
+with no `command` still checks the harness, as it always did. `command-exists`
+keeps reporting `degraded`/`blocked` — never `n/a` — when the program is not on
+PATH, wherever the manifest is run.
+
+**Why:** the question is identical to the one the probe already answers, and a
+second type would split "is it on PATH" across two spellings. On the register:
+running a manifest somewhere the harness was never installed looks like a
+reason to report `n/a`, but D-010 already settled it — an uninstalled
+integration is drift by definition, and exempting it would make the tool quiet
+in exactly the case where nothing works at all.
+
+**Consequences:** a public repo whose contributors do not all install the
+harness cannot run this manifest from a tracked hook without failing their
+pushes; the trigger belongs in a machine-local hook or a CI job where the
+harness is installed. That constraint is inherited from D-010, not new here.

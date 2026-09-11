@@ -5,12 +5,15 @@
   "configDir": ".",
   "probes": [
     { "type": "command-exists", "critical": true },
+    { "type": "command-exists", "command": "jq", "critical": true },
     { "type": "version" },
     { "type": "flag-accepted", "flags": ["-p", "--allowedTools"] },
     {
       "type": "config-key",
       "file": "settings.json",
       "keys": ["hooks.PreToolUse"],
+      "expect": { "permissions.defaultMode": "acceptEdits" },
+      "absent": ["hooks.preToolUse"],
       "critical": true
     },
     {

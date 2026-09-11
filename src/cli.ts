@@ -22,6 +22,9 @@ function render(v: Verdict): void {
   for (const r of v.results) {
     process.stdout.write(`  ${mark(r.status)}  ${r.probe}: ${r.detail}\n`);
   }
+  for (const note of v.notes) {
+    process.stdout.write(`  ${pc.dim("note")}  ${pc.dim(note)}\n`);
+  }
   const summary = v.ok
     ? pc.green("PASS — integration holds")
     : `${v.blocked ? pc.red(`${v.blocked} blocked`) : ""}${v.blocked && v.degraded ? ", " : ""}${v.degraded ? pc.yellow(`${v.degraded} degraded`) : ""} — drift detected`;

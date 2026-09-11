@@ -3,7 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { runProbe, type ProbeContext } from "../src/probes.js";
-import { loadManifest } from "../src/manifest.js";
+import {
+  loadManifest,
+  type Manifest,
+  type ProbeSpec,
+} from "../src/manifest.js";
 import { runManifest } from "../src/doctor.js";
 
 let dir: string;
@@ -458,5 +462,252 @@ describe("flag-accepted whole-token matching", () => {
   });
   it("a flag written --output-format=json still matches --output-format", () => {
     expect(probe(["--output-format"]).status).toBe("pass");
+  });
+});
+
+describe("config-key: expected values", () => {
+  let cfg: string;
+  beforeAll(() => {
+    cfg = path.join(dir, "values.json");
+    fs.writeFileSync(
+      cfg,
+      JSON.stringify({
+        voice: { enabled: true, enable: false },
+        permissions: { defaultMode: "acceptEdits", allow: ["Bash", "Read"] },
+        limits: { maxTokens: 4096 },
+      }),
+    );
+  });
+
+  it("passes when every declared value matches", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: {
+          "voice.enabled": true,
+          "permissions.defaultMode": "acceptEdits",
+        },
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("pass");
+    expect(r.detail).toContain("values match");
+  });
+
+  it("degrades naming the value it found and the one declared", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "voice.enabled": false },
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("voice.enabled is true (expected false)");
+  });
+
+  it("reports an expected key that is not there at all", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "voice.volume": 3 },
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("voice.volume is absent (expected 3)");
+  });
+
+  it("compares arrays and objects deeply, not by identity", () => {
+    const match = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "permissions.allow": ["Bash", "Read"] },
+      },
+      ctx(),
+      [],
+    );
+    expect(match.status).toBe("pass");
+    const reordered = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "permissions.allow": ["Read", "Bash"] },
+      },
+      ctx(),
+      [],
+    );
+    expect(reordered.status).toBe("degraded");
+  });
+
+  it("blocks on a wrong value when the probe is critical", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "limits.maxTokens": 8192 },
+        critical: true,
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("blocked");
+  });
+});
+
+describe("config-key: names that must be absent", () => {
+  it("passes when the declared name is gone", () => {
+    const r = runProbe(
+      { type: "config-key", file: "values.json", absent: ["voice.legacyMode"] },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("pass");
+    expect(r.detail).toContain("absent as declared");
+  });
+
+  it("reports the leftover twin of a renamed key, with the value it still holds", () => {
+    const r = runProbe(
+      { type: "config-key", file: "values.json", absent: ["voice.enable"] },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain(
+      "declared absent but present: voice.enable = false",
+    );
+  });
+
+  it("names a wrong value and a leftover key in the same verdict", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        keys: ["limits.maxTokens"],
+        expect: { "voice.enabled": false },
+        absent: ["voice.enable"],
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("voice.enabled is true");
+    expect(r.detail).toContain("voice.enable = false");
+  });
+
+  it("is n/a when the probe declares nothing to assert", () => {
+    const r = runProbe({ type: "config-key", file: "values.json" }, ctx(), []);
+    expect(r.status).toBe("n/a");
+    expect(r.detail).toContain("nothing declared");
+  });
+});
+
+describe("command-exists: helper programs", () => {
+  it("checks a declared helper program instead of the harness", () => {
+    const r = runProbe({ type: "command-exists", command: "sh" }, ctx(), []);
+    expect(r.status).toBe("pass");
+    expect(r.probe).toBe("command-exists(sh)");
+  });
+
+  it("names a missing helper as a helper, not as the harness", () => {
+    const r = runProbe(
+      { type: "command-exists", command: "peirad-no-such-helper" },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("declared as a helper program");
+  });
+
+  it("still checks the harness itself when no helper is named", () => {
+    const r = runProbe({ type: "command-exists" }, ctx(), []);
+    expect(r.probe).toBe("command-exists(true)");
+    expect(r.status).toBe("pass");
+  });
+});
+
+describe("fields a build does not understand", () => {
+  const withUnknown = (extra: Record<string, unknown>): ProbeSpec =>
+    ({
+      type: "config-key",
+      file: "settings.json",
+      keys: ["hooks.PreToolUse"],
+      ...extra,
+    }) as unknown as ProbeSpec;
+
+  it("degrades a pass that skipped a declared assertion, naming the field", () => {
+    const r = runProbe(withUnknown({ mustEqual: { a: 1 } }), ctx(), []);
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("1 declared assertion skipped");
+    expect(r.detail).toContain("mustEqual");
+    expect(r.detail).toContain("upgrade peirad");
+  });
+
+  it("never turns a skipped assertion into a block, however critical the probe", () => {
+    const r = runProbe(
+      withUnknown({ mustEqual: { a: 1 }, critical: true }),
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+  });
+
+  it("keeps a real failure's own register and still names the skipped field", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "settings.json",
+        keys: ["hooks.Nope"],
+        critical: true,
+        mustEqual: {},
+      } as unknown as ProbeSpec,
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("blocked");
+    expect(r.detail).toContain("missing keys");
+    expect(r.detail).toContain("mustEqual");
+  });
+
+  it("treats an underscore key as a comment, never as a skipped assertion", () => {
+    const r = runProbe(
+      withUnknown({ _note: "why this probe exists" }),
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("pass");
+    expect(r.detail).not.toContain("skipped");
+  });
+
+  it("says nothing extra about a probe type it does not know at all", () => {
+    const r = runProbe(
+      { type: "future-probe", someField: 1 } as unknown as ProbeSpec,
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("n/a");
+    expect(r.detail).toContain('unknown probe type "future-probe"');
+    expect(r.detail).not.toContain("someField");
+  });
+
+  it("notes a manifest key it ignores without changing the verdict", () => {
+    const v = runManifest(
+      {
+        harness: "true",
+        probes: [{ type: "command-exists" }],
+        futureSetting: "on",
+      } as unknown as Manifest,
+      { configDir: dir, date: "2026-09-11" },
+    );
+    expect(v.ok).toBe(true);
+    expect(v.notes.join(" ")).toContain("futureSetting");
+    expect(v.notes.join(" ")).toContain("upgrade peirad");
   });
 });

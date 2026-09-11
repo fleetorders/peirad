@@ -1,4 +1,10 @@
-export { loadManifest } from "./manifest.js";
+export {
+  loadManifest,
+  unknownProbeFields,
+  unknownManifestFields,
+  PROBE_FIELDS,
+  MANIFEST_FIELDS,
+} from "./manifest.js";
 export type { Manifest, ProbeSpec } from "./manifest.js";
 export {
   resolveProfile,

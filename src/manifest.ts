@@ -6,10 +6,37 @@
 import fs from "node:fs";
 
 export type ProbeSpec =
-  | { type: "command-exists"; critical?: boolean }
+  | {
+      type: "command-exists";
+      /**
+       * A helper program the integration needs, checked instead of the harness
+       * itself — a feature that shells out to something declares that program
+       * here, so "installed but its helper is gone" stops reading as healthy.
+       */
+      command?: string;
+      critical?: boolean;
+    }
   | { type: "version" }
   | { type: "flag-accepted"; flags: string[]; critical?: boolean }
-  | { type: "config-key"; file: string; keys: string[]; critical?: boolean }
+  | {
+      type: "config-key";
+      file: string;
+      /** Dotted key paths that must exist (any value). */
+      keys?: string[];
+      /**
+       * Dotted key path → the value it must hold, compared deeply. An update
+       * that quietly switches a feature off is drift the day it lands, not a
+       * key that still technically exists.
+       */
+      expect?: Record<string, unknown>;
+      /**
+       * Dotted key paths that must NOT exist. The leftover twin of a renamed
+       * key still parses and still reads as configured, while the harness has
+       * moved on to the new name and runs at its default.
+       */
+      absent?: string[];
+      critical?: boolean;
+    }
   | {
       type: "transcript-field";
       glob: string;
@@ -53,6 +80,68 @@ export interface Manifest {
   /** Relative paths in probes resolve against this (default "."). Overridden by --config-dir. */
   configDir?: string;
   probes: ProbeSpec[];
+}
+
+/** Fields any probe may carry, whatever its type. */
+const COMMON_PROBE_FIELDS: readonly string[] = ["type", "critical"];
+
+/**
+ * The fields each probe type understands, by type name. A manifest written for
+ * a newer engine may carry fields an older install has never heard of: the run
+ * skips them and NAMES them (see `unknownProbeFields`) rather than passing as
+ * though the assertion had been made. Keep a row here whenever a probe learns
+ * a field — a field missing from this table reads as unknown to its own build.
+ */
+export const PROBE_FIELDS: Record<string, readonly string[]> = {
+  "command-exists": ["command"],
+  version: [],
+  "flag-accepted": ["flags"],
+  "config-key": ["file", "keys", "expect", "absent"],
+  "transcript-field": ["glob", "fields"],
+  "hook-registered": ["file", "event", "match"],
+  script: ["script", "args", "timeoutMs"],
+};
+
+/** Manifest-level keys this build understands. */
+export const MANIFEST_FIELDS: readonly string[] = [
+  "name",
+  "harness",
+  "harnessProfile",
+  "promptArgs",
+  "outputArgs",
+  "versionArgs",
+  "configDir",
+  "probes",
+];
+
+/** A key a manifest author wrote as a comment: never a field, never reported. */
+const isComment = (key: string): boolean => key.startsWith("_");
+
+function unknownKeys(
+  obj: object,
+  known: readonly string[],
+  common: readonly string[] = [],
+): string[] {
+  return Object.keys(obj)
+    .filter((k) => !isComment(k) && !known.includes(k) && !common.includes(k))
+    .sort();
+}
+
+/**
+ * Field names on a probe that this build does not understand. Returns nothing
+ * for a probe type the build does not know at all — there is no field list to
+ * compare against, and such a probe already renders `n/a` naming the type
+ * (D-008); reporting its fields as well would say the same thing twice.
+ */
+export function unknownProbeFields(spec: ProbeSpec): string[] {
+  const known = PROBE_FIELDS[spec.type];
+  if (!known) return [];
+  return unknownKeys(spec, known, COMMON_PROBE_FIELDS);
+}
+
+/** Manifest-level keys this build does not understand. */
+export function unknownManifestFields(manifest: Manifest): string[] {
+  return unknownKeys(manifest, MANIFEST_FIELDS);
 }
 
 export function loadManifest(path: string): Manifest {

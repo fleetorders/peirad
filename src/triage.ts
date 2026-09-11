@@ -98,8 +98,33 @@ export function buildChangelogRubric(manifest: Manifest): string {
       lines.push(`- CLI flags that must keep parsing: ${p.flags.join(", ")}`);
       declared++;
     } else if (p.type === "config-key") {
+      // Three declarable shapes on one file: keys that must exist, values they
+      // must hold, names that must have gone. A changelog can break any of
+      // them, so each is listed as its own dependency rather than summarised.
+      if (p.keys?.length) {
+        lines.push(
+          `- Config keys in ${p.file} that must keep existing: ${p.keys.join(", ")}`,
+        );
+        declared++;
+      }
+      const expected = Object.entries(p.expect ?? {});
+      if (expected.length > 0) {
+        lines.push(
+          `- Config values in ${p.file} that must keep their meaning: ${expected
+            .map(([k, v]) => `${k} = ${JSON.stringify(v)}`)
+            .join(", ")}`,
+        );
+        declared++;
+      }
+      if (p.absent?.length) {
+        lines.push(
+          `- Config keys in ${p.file} that must stay absent (renamed or removed upstream): ${p.absent.join(", ")}`,
+        );
+        declared++;
+      }
+    } else if (p.type === "command-exists" && p.command) {
       lines.push(
-        `- Config keys in ${p.file} that must keep existing: ${p.keys.join(", ")}`,
+        `- A helper program the integration shells out to must stay installed: ${p.command}`,
       );
       declared++;
     } else if (p.type === "hook-registered") {
