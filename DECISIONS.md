@@ -281,3 +281,31 @@ well as in this file, and the two must move together. A wiring whose review is
 passed keeps nagging until someone decides, which is the intent — the noise is
 the forcing function, and silencing it without deciding is the one disallowed
 response.
+
+### D-013 — A triggered check runs the working checkout, not the published release
+
+**Scope:** repo · **Decided:** 2026-09-11 · **Supersedes:** the version source in D-011
+
+Where a working checkout of this tool is present on the same machine, a wiring
+that fires it on a trigger runs that checkout — rebuilding it when its sources
+are newer than its build — rather than fetching a published release. The
+registry becomes the fallback for a machine with no checkout. Every run prints
+the version, the revision, and whether the checkout had uncommitted work.
+
+**Why:** D-011 removed the chore of bumping a pin, but kept a slower gate in
+place: a fix reached a consumer only after a release, and a release is a manual,
+batched act. When the tool and the thing it checks are developed in parallel,
+that gate is the bottleneck — the consumer spends the whole feature cycle
+testing against a build that predates the work. Running the checkout collapses
+the distance to a single commit, and makes the tool's own changes visible in the
+place they are supposed to matter, immediately rather than eventually.
+
+**Consequences:** a run can no longer be identified by version alone, since the
+package version is unchanged across a day of commits — the revision on the
+printed line is the identifier, and `checker` in the verdict names only the
+version. A checkout mid-refactor produces no verdict, which is a loud skip and
+never a block: the tool being briefly broken must not start failing the pushes
+of the projects that check with it. That is a deliberate asymmetry — real drift
+still blocks, an absent checker never does. A release remains how a machine
+without the checkout gets the work, and how anyone else does; it is no longer
+how the checked projects get it.
