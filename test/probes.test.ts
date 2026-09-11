@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { runProbe, type ProbeContext } from "../src/probes.js";
+import { newestMatch, runProbe, type ProbeContext } from "../src/probes.js";
 import {
   loadManifest,
   type Manifest,
@@ -177,6 +177,58 @@ describe("transcript-field", () => {
     expect(r.status).toBe("degraded");
     expect(r.detail).toContain("z-second.jsonl");
     expect(r.detail).toContain("2026-06-01");
+  });
+});
+
+// Every wildcard shape a glob may use, against one tree: a stray file one
+// level too shallow, the intended file one level deeper, and a top-level
+// file. A `*` in a middle segment must match exactly that segment — matching
+// the stray instead would assert fields against the wrong file entirely.
+describe("glob shapes", () => {
+  let tree: string;
+  const OLD = new Date("2026-01-01T00:00:00Z");
+  const NEW = new Date("2026-06-01T00:00:00Z");
+  const found = (pattern: string): string | null => {
+    const m = newestMatch(tree, pattern);
+    return m ? path.relative(tree, m.file).split(path.sep).join("/") : null;
+  };
+
+  beforeAll(() => {
+    tree = fs.mkdtempSync(path.join(os.tmpdir(), "peirad-glob-"));
+    fs.mkdirSync(path.join(tree, "a", "sub"), { recursive: true });
+    for (const rel of ["top.jsonl", "a/stray.jsonl", "a/sub/b.jsonl"]) {
+      fs.writeFileSync(path.join(tree, ...rel.split("/")), "{}\n");
+      fs.utimesSync(
+        path.join(tree, ...rel.split("/")),
+        rel === "a/sub/b.jsonl" ? NEW : OLD,
+        rel === "a/sub/b.jsonl" ? NEW : OLD,
+      );
+    }
+  });
+  afterAll(() => fs.rmSync(tree, { recursive: true, force: true }));
+
+  it("*.jsonl matches the top level only", () => {
+    expect(found("*.jsonl")).toBe("top.jsonl");
+  });
+
+  it("a/*/b.jsonl matches one level deep, never the stray beside it", () => {
+    expect(found("a/*/b.jsonl")).toBe("a/sub/b.jsonl");
+  });
+
+  it("a/*.jsonl matches one level deep, never the file below it", () => {
+    expect(found("a/*.jsonl")).toBe("a/stray.jsonl");
+  });
+
+  it("a/*/*.jsonl needs two segments after a", () => {
+    expect(found("a/*/*.jsonl")).toBe("a/sub/b.jsonl");
+  });
+
+  it("a/**/*.jsonl crosses any depth, sampling the newest", () => {
+    expect(found("a/**/*.jsonl")).toBe("a/sub/b.jsonl");
+  });
+
+  it("returns null when the middle segment has no match", () => {
+    expect(found("a/*/c.jsonl")).toBeNull();
   });
 });
 

@@ -38,6 +38,7 @@ import {
   type ProbeResult,
   type ProbeStatus,
 } from "./probes.js";
+import { globRegExp, globRoot } from "./glob.js";
 import { fold, getDotted } from "./values.js";
 
 /** How a harness is driven through one live turn — profile data. */
@@ -110,8 +111,6 @@ const tomlString = (s: string): string =>
   `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 const tomlKey = (s: string): string =>
   /^[A-Za-z0-9_-]+$/.test(s) ? s : tomlString(s);
-const escapeRe = (s: string): string =>
-  s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The register for a failed live check: blocked when the manifest marks a
  * probe of the same kind critical, degraded otherwise. */
@@ -186,26 +185,7 @@ export function findSessionTranscript(
   since: number,
 ): { file: string; mtime: Date } | null {
   if (!SESSION_ID.test(session)) return null;
-  let re = "";
-  for (let i = 0; i < pattern.length; i++) {
-    if (pattern.startsWith("{session}", i)) {
-      re += escapeRe(session);
-      i += "{session}".length - 1;
-    } else if (pattern.startsWith("**/", i)) {
-      re += "(?:.*/)?";
-      i += 2;
-    } else if (pattern[i] === "*") {
-      re += "[^/]*";
-    } else {
-      re += escapeRe(pattern[i]!);
-    }
-  }
-  const matcher = new RegExp(`^${re}$`);
-  const prefix = pattern.split(/[*{]/)[0]!;
-  const start = path.join(
-    configDir,
-    prefix.includes("/") ? prefix.slice(0, prefix.lastIndexOf("/")) : "",
-  );
+  const matcher = globRegExp(pattern, { session });
   let best: { file: string; mtime: Date } | null = null;
   const walk = (dir: string): void => {
     let entries: fs.Dirent[];
@@ -232,7 +212,7 @@ export function findSessionTranscript(
       }
     }
   };
-  walk(start);
+  walk(globRoot(configDir, pattern));
   return best;
 }
 

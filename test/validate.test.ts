@@ -209,6 +209,21 @@ describe("what validate only warns about", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("warns about a transcript glob that uses characters matched literally", () => {
+    const r = check(
+      {
+        harness: "claude",
+        probes: [
+          { type: "transcript-field", glob: "projects/?/{a,b}.jsonl", fields: ["type"] },
+        ],
+      },
+      ".",
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.map((w) => w.path)).toEqual(["probes[0].glob"]);
+    expect(r.warnings[0]!.message).toContain("within one path segment");
+  });
 });
 
 describe("locating positions in JSON", () => {

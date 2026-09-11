@@ -33,6 +33,7 @@ import {
   type HarnessReport,
 } from "./reports.js";
 import { envNames, evaluateEnv, type EnvSource } from "./environment.js";
+import { listMatches } from "./glob.js";
 import {
   describeLayers,
   effectiveSettings,
@@ -136,36 +137,6 @@ export function resolveBinary(harness: string): string | null {
   return p.length > 0 ? p : null;
 }
 
-// Minimal glob: supports "dir/**/*.ext" (recursive) and "dir/*.ext" (one
-// level); returns EVERY match so the caller samples by recency, not by the
-// order a directory listing happened to surface.
-function allMatches(base: string, pattern: string): string[] {
-  const recursive = pattern.includes("**");
-  const ext = path.extname(pattern);
-  const root = path.join(base, pattern.split("*")[0]!.replace(/\/$/, ""));
-  const found: string[] = [];
-  const walk = (dir: string): void => {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (e.isFile() && (!ext || e.name.endsWith(ext))) {
-        found.push(path.join(dir, e.name));
-      }
-    }
-    if (recursive) {
-      for (const e of entries) {
-        if (e.isDirectory()) walk(path.join(dir, e.name));
-      }
-    }
-  };
-  walk(root);
-  return found;
-}
-
 /** The match with the newest mtime: the transcript the current build wrote,
  * not whichever file sorts first. Ties keep the first-listed (name order)
  * file, so the pick stays deterministic. */
@@ -174,7 +145,7 @@ export function newestMatch(
   pattern: string,
 ): { file: string; mtime: Date } | null {
   let best: { file: string; mtime: Date } | null = null;
-  for (const file of allMatches(base, pattern)) {
+  for (const file of listMatches(base, pattern)) {
     let mtime: Date;
     try {
       mtime = fs.statSync(file).mtime;
