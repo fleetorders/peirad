@@ -391,3 +391,38 @@ harness locations, expanded from `{home}`/`{configDir}` at run time, so nothing
 in the profile names a particular machine. A stack whose files are all absent
 is not an error: the merged settings are empty and the declared keys are
 missing, which is the correct verdict.
+
+### D-017 — The ledger records names near what was declared, and never reaches the exit code
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+A run may record the surface it observed — harness version, flag tokens in the
+help, settings key names, transcript field names — to `peirad.baseline.json`
+beside the manifest, but only when asked (`--record-baseline`). The file is
+meant to be committed. Once it exists, every run compares against it and
+reports what moved that no probe declares, as a register of its own. Three
+rules bound it. **It never changes the exit code.** **It records names, never
+values.** **It records only near what the manifest points at:**
+top-level settings names plus everything under the parent of each declared key,
+and a key that is not identifier-shaped is recorded as `*` and not followed.
+
+**Why:** a stateless run cannot say "since when", which was the gap; but this is
+the tool's first write to disk, and the file lives in a repository where others
+read it, so what goes into it has to be safe to publish. Values are where
+secrets live. A user's own settings layer is personal: under an effective read
+it is part of what the probe sees, and writing every key in it into a team's
+repository would publish one person's configuration. The neighbourhood of a
+declared key is also where the useful movement is — a key renamed beside the
+one you check — so the scope that protects privacy is the scope that carries
+the signal. Non-identifier keys are data (file paths, ids, plugin sources): they
+would leak content and turn every new entry into noise. Movement stays out of
+the exit code because a harness update moves things constantly, and a checker
+that fails on every release teaches its reader to stop reading; the declared
+probes already say whether something broke.
+
+**Consequences:** the ledger cannot see movement in a part of the settings no
+probe mentions — deliberately. A declared name that disappears is reported by
+its probe, not duplicated by the ledger. A baseline written in another format is
+refused with the reason; a source the manifest reads now but the baseline never
+recorded is named as untracked rather than diffed. Comparing requires observing,
+which spawns the harness's help once more per run while a baseline exists.

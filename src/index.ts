@@ -27,9 +27,31 @@ export {
   provenance,
 } from "./settings.js";
 export type { LayerVars, LoadedLayer, Provenance } from "./settings.js";
-export { runManifest } from "./doctor.js";
-export type { Verdict, RunOptions } from "./doctor.js";
-export { runProbe, harnessVersion } from "./probes.js";
+export { runManifest, observeManifest, runLedger } from "./doctor.js";
+export type { Verdict, RunOptions, LedgerOptions } from "./doctor.js";
+export {
+  BASELINE_FILE,
+  compareSurface,
+  formatBaseline,
+  keyPaths,
+  makeBaseline,
+  observeSurface,
+  readBaseline,
+} from "./baseline.js";
+export type {
+  Baseline,
+  BaselineRead,
+  BaselineReport,
+  Moved,
+  Surface,
+} from "./baseline.js";
+export {
+  runProbe,
+  harnessVersion,
+  helpTokens,
+  newestMatch,
+  readSettings,
+} from "./probes.js";
 export type { ProbeResult, ProbeStatus, ProbeContext } from "./probes.js";
 export { assessAlarm, buildChangelogRubric } from "./triage.js";
 export type {

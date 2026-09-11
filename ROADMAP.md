@@ -10,6 +10,8 @@ than left to rot. What exists today is described in the README, not here.
   programs a feature shells out to. _Shipped 2026-09-11._
 - Judge settings where the harness reads them: merge the settings stack in its
   own precedence (`scope: "effective"`). _Shipped 2026-09-11._
+- Report what moved that nobody declared, against a committed baseline of the
+  observed surface (`--record-baseline`). _Shipped 2026-09-11._
 - A published compatibility matrix per harness (verified-against versions).
 
 ## Next

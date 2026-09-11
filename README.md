@@ -223,6 +223,44 @@ Relative `file`/`glob` paths resolve against the manifest's directory, or pass
 `--config-dir` to point at your harness config location. Add `--json` for a
 machine-readable verdict.
 
+## What moved that you never declared
+
+A verdict answers "does what I declared still hold?". It cannot tell you what
+changed around it — a flag that appeared, a settings key renamed next to the
+one you check, a new field in the transcripts — because a run keeps nothing.
+Record a baseline once, and later runs report that as a third register:
+
+```sh
+npx peirad --record-baseline      # writes peirad.baseline.json beside the manifest
+git add peirad.baseline.json      # commit it: movement then shows up as a diff
+```
+
+```
+$ npx peirad
+my integration — harness claude (claude) 2.1.268 · peirad 0.5.0 · 2026-09-11
+  ok    flag-accepted(-p): all flags present in --help
+  ok    config-key(settings.json): values match: voice.enabled
+  moved since the baseline of 2026-09-01 — undeclared, not counted as drift:
+    ~ version 2.1.223 → 2.1.268
+    + help --new-flag
+    - settings(settings.json) voice.enable
+  PASS — integration holds
+```
+
+What moved is a reason to look, not a failure: it never changes the exit code,
+and anything you _did_ declare stays the probes' job, so the ledger lists only
+what nobody declared. Once `peirad.baseline.json` exists every run compares
+against it; `--no-baseline` skips that, and `--baseline <file>` names another
+file. Record again whenever you have looked at what moved and accept it.
+
+The baseline records **names, never values**, and only around what your
+manifest points at: the harness version, the flags its help carries, the
+top-level settings names plus the neighbourhood of each key you declared (so
+`voice.enable` beside `voice.enabled` is seen, while keys elsewhere in your own
+settings are not written into a committed file), and the field names on the
+newest transcript. A key that is data rather than a name — a file path, an id —
+is recorded as `*` and not followed.
+
 ## Harness profiles
 
 Agent CLIs disagree on how to be driven headless: one takes `-p <prompt>

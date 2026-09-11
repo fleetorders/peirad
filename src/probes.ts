@@ -97,6 +97,16 @@ export function harnessVersion(harness: string, versionArgs: string[]): string {
   return out.trim().split("\n")[0]?.trim() ?? "unknown";
 }
 
+/** The whole tokens of a harness's help output. The text is split on
+ * whitespace and on the punctuation that glues a flag to its placeholder, so a
+ * lookup for "--allowed" cannot succeed against "--allowedTools", nor "-p"
+ * against "--print". Shared by the flag probe and the baseline ledger, so the
+ * two can never disagree about what the help carries. */
+export function helpTokens(harness: string, helpArgs: string[]): Set<string> {
+  const { out } = runHarness(harness, helpArgs);
+  return new Set(out.split(/[\s,=\[\]<>|()]+/).filter((t) => t.length > 0));
+}
+
 /** `command -v <harness>`: the resolved binary path, or null when off PATH. */
 export function resolveBinary(harness: string): string | null {
   const r = spawnSync("command", ["-v", harness], {
@@ -141,7 +151,7 @@ function allMatches(base: string, pattern: string): string[] {
 /** The match with the newest mtime: the transcript the current build wrote,
  * not whichever file sorts first. Ties keep the first-listed (name order)
  * file, so the pick stays deterministic. */
-function newestMatch(
+export function newestMatch(
   base: string,
   pattern: string,
 ): { file: string; mtime: Date } | null {
@@ -215,11 +225,11 @@ function show(value: unknown, maxChars = 60): string {
  * object plus, under "effective", the layers behind it — so a verdict can say
  * which scope a setting actually came from.
  */
-type SettingsSource =
+export type SettingsSource =
   | { ok: true; data: unknown; where: string; layers?: LoadedLayer[] }
   | { ok: false; status: ProbeStatus; detail: string };
 
-function readSettings(
+export function readSettings(
   spec: { scope?: SettingsScope; file?: string; critical?: boolean },
   ctx: ProbeContext,
   profile: HarnessProfile,
@@ -405,13 +415,7 @@ function runKnownProbe(
     case "flag-accepted": {
       // Flags for a subcommand-shaped CLI live in that subcommand's help;
       // the profile says which help to read.
-      const { out } = runHarness(ctx.harness, profile.helpArgs);
-      // Whole-token match only: the help text is split on whitespace and the
-      // punctuation that glues flags to placeholders, so "--allowed" cannot
-      // pass against "--allowedTools" nor "-p" against "--print".
-      const tokens = new Set(
-        out.split(/[\s,=\[\]<>|()]+/).filter((t) => t.length > 0),
-      );
+      const tokens = helpTokens(ctx.harness, profile.helpArgs);
       const missing = spec.flags.filter((f) => !tokens.has(f));
       return {
         probe: `flag-accepted(${spec.flags.join(",")})`,
