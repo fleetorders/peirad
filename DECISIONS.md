@@ -233,4 +233,51 @@ and is not exempted with a non-blocking run. The codex-profile applicability
 fix (D-009) reaches codex manifests only after the next release; until then
 those probes read `n/a` on the published build. Review question on 2026-09-25:
 did any triggered run print something worth reading, and was anything caught
-that nothing else would have.
+that nothing else would have. The wiring that fires those runs announces this
+review itself and is removed unless the review keeps it (D-012).
+
+### D-011 — A triggered check tracks the newest release, and the verdict names the checker
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+A wiring that fires the checker on a trigger resolves the newest published
+version at run time rather than carrying a pinned one, and remembers the last
+version it resolved so an unreachable registry falls back instead of failing.
+Because the version now floats, the verdict header carries the checker's own
+version beside the harness version, and `--json` carries it as `checker`.
+
+**Why:** a pin is a second thing to maintain, and the maintenance is invisible
+when it lapses — a fix shipped in a release reaches nobody until someone
+remembers to bump a number in a file nothing tests. Resolution at run time
+removes the step entirely. What a pin bought was attribution: the reader knew
+which build spoke. Moving that into the verdict keeps the attribution and drops
+the chore, and it serves every consumer, not only the ones that float.
+
+**Consequences:** a check that fires on a trigger asks the registry once per
+run; where the registry is unreachable and the remembered version is not
+cached, the run says so and does not fail — a checker that cannot be fetched is
+not evidence of drift, and conflating the two would teach the reader to ignore
+the line. A release therefore reaches every triggered wiring on its next run,
+which makes a bad release visible fast and unpinnable: the fix is another
+release, not an edit in each consumer.
+
+### D-012 — A wiring added to answer a question announces its own review date
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+Any wiring installed to answer a question about the tool — rather than to check
+a contract someone depends on — carries the date of the review that judges it.
+From that date every run prints what the question was and the two ways to close
+it: move the date and record why, or remove the wiring with the single command
+that does it. The default is removal, and the runner states it.
+
+**Why:** the failure mode of an experiment is not a wrong answer, it is no
+answer — the wiring stays, stops being read, and becomes furniture that nobody
+can justify or dares remove. A date in a note decays silently; a date in the
+thing that runs cannot, because it speaks in the place the evidence appears.
+
+**Consequences:** the review question from D-010 now lives in the runner as
+well as in this file, and the two must move together. A wiring whose review is
+passed keeps nagging until someone decides, which is the intent — the noise is
+the forcing function, and silencing it without deciding is the one disallowed
+response.
