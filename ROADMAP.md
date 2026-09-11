@@ -24,6 +24,8 @@ than left to rot. What exists today is described in the README, not here.
 - Draft the manifest from the project's own files, and report what the code
   uses but the manifest does not declare (`init`, `--coverage`). _Shipped
   2026-09-11._
+- Read a manifest strictly before running it, with the line of every problem
+  (`validate`). _Shipped 2026-09-11._
 - A published compatibility matrix per harness (verified-against versions).
 
 ## Next

@@ -342,6 +342,36 @@ Relative `file`/`glob` paths resolve against the manifest's directory, or pass
 `--config-dir` to point at your harness config location. Add `--json` for a
 machine-readable verdict.
 
+## Validate the manifest
+
+A run is lenient on purpose: a field it does not understand is skipped and
+named (see [When your manifest is newer than your
+peirad](#when-your-manifest-is-newer-than-your-peirad)), so an older install
+still delivers a verdict. `peirad validate` is the strict reading — for CI, and
+for the typo a run would forgive:
+
+```sh
+npx peirad validate                  # or: -m path/to/peirad.json
+```
+
+```
+peirad.json — 1 error, 1 warning · 6 probes · peirad 0.5.0
+  ERR   probes[2].absnet (peirad.json:14): unknown field "absnet" on a config-key probe
+  WARN  probes[4].file (peirad.json:22): "settings.json" does not exist at …/settings.json
+  probes[0] command-exists
+  …
+```
+
+It refuses unknown fields and probe types, values of the wrong shape, missing
+required fields and probes that declare nothing — each with its JSON path and
+line. It warns, without failing, about what depends on the machine rather than
+the manifest: a file or script that does not exist here (you may run with
+`--config-dir`), a report the harness profile does not declare, a flag entry
+that does not start with `-`. Every probe is listed with the paths it will
+read. No harness process is started. Exit code 0 with no errors, 1 with errors,
+2 when the file is not readable JSON; `--json` prints the report. Keys beginning
+with `_` are comments here too.
+
 ## Proving it in one real turn
 
 Every probe above reads what the harness left behind: its help text, its

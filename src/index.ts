@@ -49,6 +49,13 @@ export type {
   EnvSource,
   PathKind,
 } from "./environment.js";
+export {
+  validateManifestFile,
+  validateManifestText,
+  parseLocated,
+  PROBE_SCHEMA,
+} from "./validate.js";
+export type { Finding, ValidatedProbe, ValidationReport } from "./validate.js";
 export { typeCoverage, describeTypeCoverage } from "./coverage.js";
 export type { TypeCoverage } from "./coverage.js";
 export { runLive } from "./live.js";

@@ -17,6 +17,8 @@ import {
 } from "./derive.js";
 import { BASELINE_FILE, type Moved } from "./baseline.js";
 import { describeTypeCoverage } from "./coverage.js";
+import { validateManifestFile } from "./validate.js";
+import { ENGINE_VERSION } from "./probes.js";
 import { triageCommand } from "./triage.js";
 import { precedentCommand } from "./precedent.js";
 
@@ -248,6 +250,63 @@ program
       process.exit(verdict.ok ? 0 : 1);
     },
   );
+
+program
+  .command("validate")
+  .description(
+    "read a manifest strictly — unknown fields, wrong shapes, probes that declare nothing — without running anything",
+  )
+  .option("-m, --manifest <file>", "manifest path", "peirad.json")
+  .option(
+    "-c, --config-dir <dir>",
+    "base dir for relative file and script paths (overrides the manifest)",
+  )
+  .option("--json", "emit the report as JSON")
+  .action((opts: { manifest: string; configDir?: string; json?: boolean }) => {
+    const file = path.resolve(opts.manifest);
+    const label = path.relative(process.cwd(), file) || opts.manifest;
+    const report = validateManifestFile(file, { configDir: opts.configDir });
+    const code = !report.ok ? 2 : report.errors.length > 0 ? 1 : 0;
+    if (opts.json) {
+      process.stdout.write(
+        `${JSON.stringify({ ...report, file: label }, null, 2)}\n`,
+      );
+      process.exit(code);
+    }
+    if (!report.ok) {
+      process.stderr.write(`peirad: ${label}: ${report.fatal}\n`);
+      process.exit(code);
+    }
+    const count = (n: number, one: string): string =>
+      `${n} ${one}${n === 1 ? "" : "s"}`;
+    const status =
+      report.errors.length > 0
+        ? pc.red(count(report.errors.length, "error"))
+        : pc.green("valid");
+    const warned =
+      report.warnings.length > 0
+        ? `, ${pc.yellow(count(report.warnings.length, "warning"))}`
+        : "";
+    process.stdout.write(
+      `${pc.bold(label)} — ${status}${warned} · ${count(report.probes.length, "probe")} · ${pc.dim(`peirad ${ENGINE_VERSION}`)}\n`,
+    );
+    const where = (f: { path: string; line: number | null }): string =>
+      `${f.path}${f.line ? ` (${label}:${f.line})` : ""}`;
+    for (const e of report.errors) {
+      process.stdout.write(`  ${pc.red("ERR ")}  ${where(e)}: ${e.message}\n`);
+    }
+    for (const w of report.warnings) {
+      process.stdout.write(
+        `  ${pc.yellow("WARN")}  ${where(w)}: ${w.message}\n`,
+      );
+    }
+    for (const probe of report.probes) {
+      process.stdout.write(
+        `  ${pc.dim(`probes[${probe.index}]`)} ${probe.type}${probe.resolved.length > 0 ? pc.dim(` → ${probe.resolved.join(", ")}`) : ""}\n`,
+      );
+    }
+    process.exit(code);
+  });
 
 program
   .command("init")

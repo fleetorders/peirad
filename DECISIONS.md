@@ -588,3 +588,34 @@ taken from other JSON in the same file; the draft labels that entry. The `_from`
 key relies on the comment convention from D-014, so a drafted manifest runs
 unchanged on this build and warns nothing under `validate`. Drafted file paths
 are relative to the scanned directory, so the draft belongs at its root.
+
+### D-023 — A strict `validate` is the counterpart of the lenient run, and splits errors from warnings by what they depend on
+
+**Scope:** repo · **Decided:** 2026-09-11 · **Settles** the surface left open in D-008
+
+`peirad validate` reads a manifest without starting any process. It refuses an
+unknown field, an unknown probe type, a value of the wrong shape, a missing
+required field and a probe that declares nothing, each with its JSON path and
+line, and exits 1. It warns without failing about what depends on the machine
+rather than the manifest: a file or script that does not exist at the resolved
+path, a report name the harness profile does not declare, a flag entry that
+does not start with `-`. Comment keys (`_`) are ignored, as in a run. The
+strict schema is data kept in step with the run's field table by a test.
+
+**Why:** the run forgives an unknown field so a newer manifest still gets a
+verdict on an older install (D-014), and that leniency is only safe beside
+something strict — otherwise a misspelt field becomes a `degraded` line that
+reads like drift in the harness, discovered at the first scheduled run instead
+of in review. Line numbers matter because the manifest is nested JSON: a finding
+that names `probes[2]` without a line makes the reader count braces. The
+error/warning split follows what a finding depends on. A wrong shape is wrong on
+every machine; a settings file that does not exist yet may exist where the
+check actually runs, and failing validation for it would make a correct
+manifest fail in the repository where it is written.
+
+**Consequences:** every new probe field needs a check here as well as a row in
+the run's field table, and the parity test fails until both exist. `validate`
+judges against the running build, so a manifest naming a profile or probe type
+from a newer release fails it on an older one — the strict answer by design,
+while the run on that build still degrades gracefully. It accepts JSON only,
+exactly as the runner loads it.
