@@ -619,3 +619,42 @@ judges against the running build, so a manifest naming a profile or probe type
 from a newer release fails it on an older one — the strict answer by design,
 while the run on that build still degrades gracefully. It accepts JSON only,
 exactly as the runner loads it.
+
+### D-024 — The live turn runs on the harness's own configuration with the user's settings set aside, and removes exactly the session it created
+
+**Scope:** repo · **Decided:** 2026-09-11 · **Supersedes:** the isolated directory and the login consequence of D-020
+
+The live turn runs against the harness's normal configuration directory, with
+the login the user already has; nothing is copied anywhere, and the no-cost
+login check still runs first. The fixture hooks reach the turn as an overlay
+for that one invocation — a separate settings file, or a command-line config
+override — and are never written into the user's files. Where the harness has a
+switch that sets the user's own settings aside, the profile passes it. The
+turn's transcript is found by the session id the turn reports, read, and then
+removed: the file itself, and its folder if that leaves it empty, or through the
+harness's own delete command where the harness indexes sessions outside their
+files. A value that does not look like a session id is never used to find or
+remove anything, and nothing else is touched. The default token ceiling is 100000. How each of these works per harness is profile data.
+
+**Why:** a fresh directory has no login for a harness signed in the usual way,
+so D-020's isolation made the live run unusable for the people it is for, and
+the alternatives were a credential passed into every run or a second login
+kept only for testing. An overlay keeps the user's files unwritten, and setting
+the user's own settings aside keeps the check about what the manifest declared
+rather than what happens to be configured. A turn writes a transcript into the
+real directory, so it has to be removed or every run leaves one behind; the
+session id is the only safe way to name that one file among many. Removing a
+session through the harness's own command where the harness also indexes it
+matters because deleting only the file would leave the harness inconsistent —
+an inconsistency this tool would have created and would itself report.
+
+**Consequences:** isolation is weaker than a separate directory. Managed policy
+settings apply to the turn, and where a harness has no switch to set the user's
+hooks aside (the codex profile), the user's own config and hooks load, and the
+hook-trust bypass the overlay needs also lets untrusted hooks in the user's
+hooks file run. Cleanup that cannot be done is reported as `n/a` naming what was
+left, never as drift. Measured usage for a minimal turn varies widely between
+harnesses, which is why the ceiling default is generous and stays a
+command-line value. The same change normalises the codex profile's usage report
+so `input_tokens` counts only uncached input, as the other profile reports it;
+before, any total added that harness's cache twice.

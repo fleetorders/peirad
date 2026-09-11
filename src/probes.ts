@@ -302,6 +302,64 @@ function probeLabel(spec: ProbeSpec, harness: string): string {
 }
 
 /**
+ * Check one transcript file: pass when any record in its sample carries every
+ * declared field. Shared by the probe, which samples the newest matching file,
+ * and the live run, which reads the exact file its own turn wrote.
+ */
+export function checkTranscriptFile(
+  spec: { glob: string; fields: string[]; critical?: boolean },
+  match: { file: string; mtime: Date },
+  base: string,
+): ProbeResult {
+  const { file, mtime } = match;
+  // Name the sample — which file was read and how fresh it is — so a
+  // verdict can be checked against the transcript it describes.
+  const sampled = `${path.relative(base, file)} (mtime ${mtime.toISOString().slice(0, 10)})`;
+  // Transcript JSONL mixes record types (summary/meta headers, then user and
+  // assistant messages), so the declared fields may legitimately be absent
+  // from line 1. Scan a sample and pass if ANY record carries all of them —
+  // that proves the schema still exposes the fields. Only "no record in the
+  // sample has them" is real drift.
+  const lines = fs
+    .readFileSync(file, "utf8")
+    .split("\n")
+    .filter((l) => l.trim().length > 0)
+    .slice(0, 200);
+  if (lines.length === 0) {
+    return {
+      probe: `transcript-field(${spec.glob})`,
+      status: fail(spec),
+      detail: `matched file is empty`,
+    };
+  }
+  let scanned = 0;
+  for (const line of lines) {
+    let rec: unknown;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    scanned++;
+    if (spec.fields.every((f) => getDotted(rec, f) !== undefined)) {
+      return {
+        probe: `transcript-field(${spec.glob})`,
+        status: "pass",
+        detail: `fields present (${spec.fields.join(", ")}) on a record within the first ${lines.length} — sampled ${sampled}`,
+      };
+    }
+  }
+  return {
+    probe: `transcript-field(${spec.glob})`,
+    status: fail(spec),
+    detail:
+      scanned === 0
+        ? `no JSON records in the first ${lines.length} lines`
+        : `schema drift — no record in the first ${scanned} has all of: ${spec.fields.join(", ")} — sampled ${sampled}`,
+  };
+}
+
+/**
  * Run one probe and report what its declared assertions did — including the
  * ones this build could not make.
  *
@@ -477,52 +535,7 @@ function runKnownProbe(
           detail: `no file matched ${spec.glob}`,
         };
       }
-      const { file, mtime } = match;
-      // Name the sample — which file was read and how fresh it is — so a
-      // verdict can be checked against the transcript it describes.
-      const sampled = `${path.relative(ctx.configDir, file)} (mtime ${mtime.toISOString().slice(0, 10)})`;
-      // Transcript JSONL mixes record types (summary/meta headers, then user and
-      // assistant messages), so the declared fields may legitimately be absent
-      // from line 1. Scan a sample and pass if ANY record carries all of them —
-      // that proves the schema still exposes the fields. Only "no record in the
-      // sample has them" is real drift.
-      const lines = fs
-        .readFileSync(file, "utf8")
-        .split("\n")
-        .filter((l) => l.trim().length > 0)
-        .slice(0, 200);
-      if (lines.length === 0) {
-        return {
-          probe: `transcript-field(${spec.glob})`,
-          status: fail(spec),
-          detail: `matched file is empty`,
-        };
-      }
-      let scanned = 0;
-      for (const line of lines) {
-        let rec: unknown;
-        try {
-          rec = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        scanned++;
-        if (spec.fields.every((f) => getDotted(rec, f) !== undefined)) {
-          return {
-            probe: `transcript-field(${spec.glob})`,
-            status: "pass",
-            detail: `fields present (${spec.fields.join(", ")}) on a record within the first ${lines.length} — sampled ${sampled}`,
-          };
-        }
-      }
-      return {
-        probe: `transcript-field(${spec.glob})`,
-        status: fail(spec),
-        detail:
-          scanned === 0
-            ? `no JSON records in the first ${lines.length} lines`
-            : `schema drift — no record in the first ${scanned} has all of: ${spec.fields.join(", ")} — sampled ${sampled}`,
-      };
+      return checkTranscriptFile(spec, match, ctx.configDir);
     }
     case "hook-registered": {
       const label = `hook-registered(${spec.event}~${spec.match})`;

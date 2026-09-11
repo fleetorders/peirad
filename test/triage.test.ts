@@ -404,7 +404,7 @@ describe("harness profiles", () => {
     expect(outcome.result.profile).toBe("codex");
     // codex reports tokens but neither model nor cost — both stay null.
     expect(outcome.result.usage).toEqual({
-      input_tokens: 21,
+      input_tokens: 13,
       cache_read_tokens: 8,
       cache_write_tokens: 2,
       output_tokens: 43,
@@ -425,7 +425,7 @@ describe("harness profiles", () => {
     });
     expect(code).toBe(0);
     expect(out).toContain("Verdict: action\n");
-    expect(out).toContain("usage: in 21 / cached 10 / out 43 tokens\n");
+    expect(out).toContain("usage: in 13 / cached 10 / out 43 tokens\n");
   });
 
   it("defaults an unknown harness to the claude convention (backwards compat)", () => {

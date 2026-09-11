@@ -58,7 +58,12 @@ export {
 export type { Finding, ValidatedProbe, ValidationReport } from "./validate.js";
 export { typeCoverage, describeTypeCoverage } from "./coverage.js";
 export type { TypeCoverage } from "./coverage.js";
-export { runLive } from "./live.js";
+export {
+  runLive,
+  sessionIdFrom,
+  harnessConfigDir,
+  findSessionTranscript,
+} from "./live.js";
 export type { LiveOptions, LiveOutcome, LiveProfile } from "./live.js";
 export {
   scanProject,
@@ -102,6 +107,7 @@ export {
   helpTokens,
   newestMatch,
   readSettings,
+  checkTranscriptFile,
 } from "./probes.js";
 export type { ProbeResult, ProbeStatus, ProbeContext } from "./probes.js";
 export { assessAlarm, buildChangelogRubric } from "./triage.js";

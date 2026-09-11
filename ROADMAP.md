@@ -17,8 +17,9 @@ than left to rot. What exists today is described in the README, not here.
 - Assert the environment contract around the harness — variables set, unset,
   holding a value, pointing at a real file — without printing secrets (`env`).
   _Shipped 2026-09-11._
-- Prove the declared hooks, transcript fields and flags in one real turn, in an
-  isolated configuration directory, opt-in (`--live`). _Shipped 2026-09-11._
+- Prove the declared hooks, transcript fields and flags in one real turn, on the
+  harness's own login with the user's settings set aside and the session removed
+  afterwards, opt-in (`--live`). _Shipped 2026-09-11._
 - Name, on every verdict, which probe types the manifest declares and which it
   does not. _Shipped 2026-09-11._
 - Draft the manifest from the project's own files, and report what the code

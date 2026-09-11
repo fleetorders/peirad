@@ -211,19 +211,24 @@ const claudeProfile: HarnessProfile = {
   // Variables under `env` in any settings layer are applied to the session,
   // over the environment the harness was started in.
   settingsEnv: "env",
-  // The configuration directory moves with one variable; the fixture hooks go
-  // in its user settings. `auth status` prints JSON and costs nothing.
+  // The turn runs on the user's own configuration and login. `--restricted`
+  // ignores the user, project and local settings files while `--settings`
+  // still applies, and `--strict-mcp-config` drops MCP servers; the fixture
+  // hooks arrive in that separate settings file. The transcript is named by
+  // the session id the JSON envelope reports.
   live: {
-    configDirEnv: "CLAUDE_CONFIG_DIR",
     authCheck: { args: ["auth", "status"], loggedIn: '"loggedIn":\\s*true' },
-    hooksFile: "settings.json",
-    transcriptGlob: "projects/**/*.jsonl",
+    hooksOverlay: { kind: "settings-file", args: ["--settings", "{file}"] },
+    turnArgs: ["--restricted", "--strict-mcp-config"],
     toolEvents: ["PreToolUse", "PostToolUse"],
-    turnArgs: ["--strict-mcp-config"],
-    toolArgs: ["--allowedTools", "Bash(true)"],
+    toolArgs: ["--tools", "Bash", "--allowedTools", "Bash(true)"],
     plainPrompt: "Reply with the single word: done",
     toolPrompt:
       "Use the Bash tool to run the command `true`, then reply with the single word: done",
+    sessionId: { field: "session_id" },
+    configDir: { env: "CLAUDE_CONFIG_DIR", default: "{home}/.claude" },
+    transcript: "projects/*/{session}.jsonl",
+    removeSession: { kind: "file", removeEmptyParent: true },
   },
   parseOutput(stdout) {
     let envelope: unknown;
@@ -280,20 +285,27 @@ const codexProfile: HarnessProfile = {
     doctor: { args: ["doctor", "--json"], format: "json", records: "checks" },
     "doctor-summary": { args: ["doctor", "--json"], format: "json" },
   },
-  // The home directory moves with one variable and holds the hooks file.
-  // Hooks there need trust the fresh home has never recorded; the bypass is
-  // scoped to this one invocation, whose only hook is peirad's own fixture.
+  // No switch sets the user's hooks file aside, so the fixture hooks arrive as
+  // a command-line config override and the user's own config still loads.
+  // Overlay hooks have no recorded trust, so the turn bypasses hook trust for
+  // this one invocation. Sessions are also indexed outside their files, so
+  // they are removed through the harness's own delete command.
   live: {
-    configDirEnv: "CODEX_HOME",
     authCheck: { args: ["login", "status"], loggedIn: "^Logged in" },
-    hooksFile: "hooks.json",
-    transcriptGlob: "sessions/**/*.jsonl",
-    toolEvents: ["PreToolUse", "PostToolUse"],
+    hooksOverlay: { kind: "config-override", args: ["-c", "{value}"] },
     turnArgs: ["--dangerously-bypass-hook-trust"],
+    toolEvents: ["PreToolUse", "PostToolUse"],
     toolArgs: [],
     plainPrompt: "Reply with the single word: done",
     toolPrompt:
       "Run the shell command `true`, then reply with the single word: done",
+    sessionId: { event: "thread.started", field: "thread_id" },
+    configDir: { env: "CODEX_HOME", default: "{home}/.codex" },
+    transcript: "sessions/**/rollout-*-{session}.jsonl",
+    removeSession: {
+      kind: "command",
+      args: ["delete", "--force", "{session}"],
+    },
   },
   parseOutput(stdout) {
     let reply: string | null = null;
@@ -325,9 +337,13 @@ const codexProfile: HarnessProfile = {
         const u = e.usage as Record<string, unknown>;
         const num = (v: unknown): number =>
           typeof v === "number" && Number.isFinite(v) ? v : 0;
+        // This stream counts cached tokens inside input_tokens; normalised so
+        // input_tokens is the uncached part, as the other profiles report it —
+        // otherwise a total adds the cache twice.
+        const cached = num(u.cached_input_tokens);
         usage = {
-          input_tokens: num(u.input_tokens),
-          cache_read_tokens: num(u.cached_input_tokens),
+          input_tokens: Math.max(0, num(u.input_tokens) - cached),
+          cache_read_tokens: cached,
           cache_write_tokens: num(u.cache_write_input_tokens),
           output_tokens: num(u.output_tokens),
           model,

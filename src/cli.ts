@@ -155,7 +155,7 @@ program
   .option("--no-baseline", "skip the baseline comparison even if one exists")
   .option(
     "--live",
-    "also drive the harness through one real turn in an isolated configuration directory (spends tokens)",
+    "also drive the harness through one real turn — your login, your settings set aside, the session removed afterwards (spends tokens)",
   )
   .option(
     "--coverage",
@@ -165,7 +165,11 @@ program
     "--scan-dir <dir>",
     "directory --coverage scans (default: the manifest's directory)",
   )
-  .option("--live-ceiling <tokens>", "token ceiling for the live turn", "10000")
+  .option(
+    "--live-ceiling <tokens>",
+    "token ceiling for the live turn",
+    "100000",
+  )
   .option(
     "--live-timeout <seconds>",
     "kill the live turn after this long",
