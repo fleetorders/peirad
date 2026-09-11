@@ -126,6 +126,59 @@ unknown probe _type_ reports `n/a` the same way. Keys beginning with `_` are
 comments and are never reported. To refuse unknown fields outright instead —
 in CI, or to catch a typo — see [`peirad validate`](#validate-the-manifest).
 
+### Reading the whole settings stack
+
+Your harness does not read one settings file. It reads several — yours, the
+project's, a local override beside it, a policy file an administrator
+controls — and merges them in its own order. A probe that reads one of them
+answers a question you did not ask: a hook moved from project scope to user
+scope reads as drift though nothing broke, and a value a higher layer
+overrides reads as present though the harness never sees it.
+
+Set `scope: "effective"` and the probe merges the stack first, in the
+harness's own precedence:
+
+```json
+{
+  "type": "hook-registered",
+  "scope": "effective",
+  "event": "PreToolUse",
+  "match": "agent-guard"
+}
+```
+
+```
+ok    hook-registered(PreToolUse~agent-guard): hook "agent-guard" registered on PreToolUse in user scope [read user, project, 2 absent]
+DEGR  config-key(effective): voice.enabled is false (expected true) [read user, project, 2 absent]
+```
+
+The verdict names the scope every setting came from, and says so when a higher
+layer shadows a lower one (`voice.enabled ← local (shadows user, project)`).
+With `scope: "effective"` you do not name a `file` — the stack decides. A
+layer that will not parse fails the probe, naming the layer: while one file is
+broken the effective settings are unknowable, and your harness is in no better
+position. The default is `scope: "file"`, which reads exactly the file you name.
+
+Where peirad has no profile for your harness, declare the stack in the
+manifest — lowest precedence first, with `{home}` and `{configDir}` expanded
+at run time:
+
+```json
+{
+  "settingsLayers": [
+    { "name": "user", "path": "{home}/.myagent/settings.json" },
+    { "name": "project", "path": "{configDir}/.myagent/settings.json" }
+  ],
+  "settingsArrays": "concat"
+}
+```
+
+`settingsArrays` says what happens to a list two layers both set: `concat`
+where every layer's entries apply (a harness that runs every registered hook,
+whichever file declared it) or `override` where the nearest scope replaces the
+rest. It is the difference between "my hook moved scope" and "my hook is dead",
+so it is declared, never guessed.
+
 The `script` probe runs an executable from the repo the manifest lives in:
 exit 0 passes, exit 1 fails with the script's stdout as the finding, and
 exit 2 reports `n/a` — no verdict. Any other outcome (not executable, killed

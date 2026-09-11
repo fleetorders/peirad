@@ -4,6 +4,15 @@
  * so adding a project or a probe never touches the engine (adapter-per-consumer).
  */
 import fs from "node:fs";
+import type { ArrayMerge, SettingsLayer } from "./harness-profiles.js";
+
+/**
+ * Where a settings probe looks: the single file it names, or the merged stack
+ * the harness itself reads. "effective" is the honest answer to "is this
+ * setting live?" — a hook that merely moved scope stops reading as drift, and
+ * a value a higher layer overrides stops reading as present.
+ */
+export type SettingsScope = "file" | "effective";
 
 export type ProbeSpec =
   | {
@@ -20,7 +29,17 @@ export type ProbeSpec =
   | { type: "flag-accepted"; flags: string[]; critical?: boolean }
   | {
       type: "config-key";
-      file: string;
+      /**
+       * The JSON file to read, relative to configDir. Not needed — and not
+       * used — when `scope` is "effective".
+       */
+      file?: string;
+      /**
+       * "file" (default) reads the one file named above. "effective" merges
+       * the harness's whole settings stack in its own precedence first, so a
+       * setting is judged where the harness reads it.
+       */
+      scope?: SettingsScope;
       /** Dotted key paths that must exist (any value). */
       keys?: string[];
       /**
@@ -45,7 +64,10 @@ export type ProbeSpec =
     }
   | {
       type: "hook-registered";
-      file: string;
+      /** The settings file to read; not needed when `scope` is "effective". */
+      file?: string;
+      /** "file" (default) or "effective" — see `config-key` above. */
+      scope?: SettingsScope;
       event: string;
       match: string;
       critical?: boolean;
@@ -79,6 +101,18 @@ export interface Manifest {
   versionArgs?: string[];
   /** Relative paths in probes resolve against this (default "."). Overridden by --config-dir. */
   configDir?: string;
+  /**
+   * Replace the profile's settings stack — the files a `scope: "effective"`
+   * probe merges, lowest precedence first. For a harness the built-in
+   * profiles do not know; `{home}` and `{configDir}` expand at run time.
+   */
+  settingsLayers?: SettingsLayer[];
+  /**
+   * Replace the profile's rule for values found in more than one layer:
+   * "concat" where every layer's entries apply (a harness that runs every
+   * registered hook), "override" where the nearest scope replaces the rest.
+   */
+  settingsArrays?: ArrayMerge;
   probes: ProbeSpec[];
 }
 
@@ -96,9 +130,9 @@ export const PROBE_FIELDS: Record<string, readonly string[]> = {
   "command-exists": ["command"],
   version: [],
   "flag-accepted": ["flags"],
-  "config-key": ["file", "keys", "expect", "absent"],
+  "config-key": ["file", "keys", "expect", "absent", "scope"],
   "transcript-field": ["glob", "fields"],
-  "hook-registered": ["file", "event", "match"],
+  "hook-registered": ["file", "event", "match", "scope"],
   script: ["script", "args", "timeoutMs"],
 };
 
@@ -111,6 +145,8 @@ export const MANIFEST_FIELDS: readonly string[] = [
   "outputArgs",
   "versionArgs",
   "configDir",
+  "settingsLayers",
+  "settingsArrays",
   "probes",
 ];
 

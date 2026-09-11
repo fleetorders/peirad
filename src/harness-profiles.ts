@@ -4,7 +4,8 @@
  * (flags, event streams, envelope shapes), so the invocation and the parsing
  * travel together as data on a profile. A manifest picks one by name
  * (`harnessProfile`) or lets the harness name decide; `promptArgs`/`outputArgs`
- * override the argv templates for a CLI the profiles do not know.
+ * override the argv templates for a CLI the profiles do not know, and
+ * `settingsLayers` overrides where that CLI keeps its settings stack.
  */
 import type { Manifest } from "./manifest.js";
 
@@ -39,6 +40,19 @@ export type ProfileParse =
  */
 export const PROMPT_PLACEHOLDER = "{prompt}";
 
+/**
+ * One file in a harness's settings stack. `path` is a template: `{home}` and
+ * `{configDir}` expand at run time, so nothing here names a particular
+ * machine. A layer may spell its path differently per platform.
+ */
+export interface SettingsLayer {
+  /** How the layer is named in a verdict line ("user", "project", "managed"). */
+  name: string;
+  path: string;
+  /** Overrides `path` on the platforms it names (keys are `process.platform`). */
+  platformPaths?: Record<string, string>;
+}
+
 export interface HarnessProfile {
   /** Profile name as a manifest writes it ("claude", "codex"). */
   name: string;
@@ -56,9 +70,26 @@ export interface HarnessProfile {
    * declares one gets an `n/a` line naming the profile — never a pass.
    */
   inapplicableProbes: string[];
+  /**
+   * The settings files this harness reads, LOWEST precedence first. A probe
+   * with `scope: "effective"` merges them in this order before it looks, so a
+   * setting is judged where the harness actually reads it rather than in
+   * whichever single file a manifest happened to name. An empty stack means
+   * the profile declares none, and such a probe reports `n/a`.
+   */
+  settingsLayers: SettingsLayer[];
+  /**
+   * How values found in more than one layer combine. `concat` for a harness
+   * that runs every registered hook whatever scope declared it; `override`
+   * where the nearest scope replaces the others outright.
+   */
+  settingsArrays: ArrayMerge;
   /** Turn the harness's stdout into the reply text + usage. */
   parseOutput(stdout: string): ProfileParse;
 }
+
+/** How a harness combines list values found in more than one settings layer. */
+export type ArrayMerge = "concat" | "override";
 
 export function parseJsonLenient(text: string): unknown {
   try {
@@ -121,6 +152,25 @@ const claudeProfile: HarnessProfile = {
   outputArgs: ["--output-format", "json"],
   helpArgs: ["--help"],
   inapplicableProbes: [],
+  // Lowest precedence first: the user's own settings, then the project's,
+  // then the local override beside it, then the machine policy file an
+  // administrator controls. Hook lists JOIN across scopes — every registered
+  // hook runs, whichever file declared it — so a hook that merely moved scope
+  // is not drift.
+  settingsLayers: [
+    { name: "user", path: "{home}/.claude/settings.json" },
+    { name: "project", path: "{configDir}/.claude/settings.json" },
+    { name: "local", path: "{configDir}/.claude/settings.local.json" },
+    {
+      name: "managed",
+      path: "/etc/claude-code/managed-settings.json",
+      platformPaths: {
+        darwin: "/Library/Application Support/ClaudeCode/managed-settings.json",
+        win32: "C:\\ProgramData\\ClaudeCode\\managed-settings.json",
+      },
+    },
+  ],
+  settingsArrays: "concat",
   parseOutput(stdout) {
     let envelope: unknown;
     try {
@@ -164,6 +214,11 @@ const codexProfile: HarnessProfile = {
   // already read, so `config-key` and `hook-registered` apply — a manifest
   // points `file` at that JSON. Only `config.toml` (TOML) is out of reach.
   inapplicableProbes: [],
+  // One JSON layer, in the user's own configuration directory. A single-layer
+  // stack still answers the question a probe with `scope: "effective"` asks —
+  // it just answers it with one file, and says so.
+  settingsLayers: [{ name: "user", path: "{home}/.codex/hooks.json" }],
+  settingsArrays: "concat",
   parseOutput(stdout) {
     let reply: string | null = null;
     let usage: HarnessUsage | null = null;
@@ -230,7 +285,10 @@ export function profileNames(): string[] {
 export function resolveProfile(
   harness: string,
   harnessProfile?: string,
-  overrides?: Pick<Manifest, "promptArgs" | "outputArgs">,
+  overrides?: Pick<
+    Manifest,
+    "promptArgs" | "outputArgs" | "settingsLayers" | "settingsArrays"
+  >,
 ): HarnessProfile {
   const name = harnessProfile ?? (harness in PROFILES ? harness : "claude");
   const base = PROFILES[name];
@@ -246,7 +304,13 @@ export function resolveProfile(
       `promptArgs must contain the ${PROMPT_PLACEHOLDER} placeholder`,
     );
   }
-  return { ...base, promptArgs, outputArgs };
+  return {
+    ...base,
+    promptArgs,
+    outputArgs,
+    settingsLayers: overrides?.settingsLayers ?? base.settingsLayers,
+    settingsArrays: overrides?.settingsArrays ?? base.settingsArrays,
+  };
 }
 
 /** Expand a profile argv template: the `{prompt}` element becomes the prompt. */

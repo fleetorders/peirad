@@ -13,8 +13,25 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import { unknownProbeFields, type ProbeSpec } from "./manifest.js";
-import { resolveProfile } from "./harness-profiles.js";
+import {
+  unknownProbeFields,
+  type ProbeSpec,
+  type SettingsScope,
+} from "./manifest.js";
+import {
+  resolveProfile,
+  type ArrayMerge,
+  type HarnessProfile,
+  type SettingsLayer,
+} from "./harness-profiles.js";
+import {
+  describeLayers,
+  effectiveSettings,
+  layerVars,
+  loadLayers,
+  provenance,
+  type LoadedLayer,
+} from "./settings.js";
 
 /** This engine's own version, read from package.json at run time — resolves
  * from both src/ (tests) and dist/ (the built CLI) without bundling it in.
@@ -52,6 +69,13 @@ export interface ProbeContext {
   /** Version string the runner already read, so the `version` probe reports it
    * without spawning the harness a second time. */
   harnessVersion?: string;
+  /** The settings stack a `scope: "effective"` probe merges. The runner puts
+   * the resolved stack here — the profile's, or the manifest's override of it
+   * — because a probe resolves its profile by name and would otherwise never
+   * see what the manifest asked for. */
+  settingsLayers?: SettingsLayer[];
+  /** How that stack combines list values; see `ProbeContext.settingsLayers`. */
+  settingsArrays?: ArrayMerge;
 }
 
 const fail = (spec: { critical?: boolean }): ProbeStatus =>
@@ -185,6 +209,93 @@ function show(value: unknown, maxChars = 60): string {
   return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
 }
 
+/**
+ * Where a settings probe reads from: one named file, or the harness's whole
+ * stack merged in its own precedence. Either way the caller gets one parsed
+ * object plus, under "effective", the layers behind it — so a verdict can say
+ * which scope a setting actually came from.
+ */
+type SettingsSource =
+  | { ok: true; data: unknown; where: string; layers?: LoadedLayer[] }
+  | { ok: false; status: ProbeStatus; detail: string };
+
+function readSettings(
+  spec: { scope?: SettingsScope; file?: string; critical?: boolean },
+  ctx: ProbeContext,
+  profile: HarnessProfile,
+): SettingsSource {
+  if (spec.scope === "effective") {
+    const declared = profile.settingsLayers;
+    if (declared.length === 0) {
+      return {
+        ok: false,
+        status: "n/a",
+        detail: `harness profile "${profile.name}" declares no settings stack — name a file instead of scope "effective"`,
+      };
+    }
+    const layers = loadLayers(declared, layerVars(ctx.configDir));
+    const broken = layers.filter((l) => l.state === "unreadable");
+    if (broken.length > 0) {
+      // The effective settings are unknowable while a layer will not parse,
+      // and the harness reading the same stack is in no better position.
+      return {
+        ok: false,
+        status: fail(spec),
+        detail: `settings layer "${broken[0]!.name}" will not parse (${broken[0]!.path}): ${broken[0]!.reason}`,
+      };
+    }
+    return {
+      ok: true,
+      data: effectiveSettings(layers, profile.settingsArrays),
+      where: describeLayers(layers),
+      layers,
+    };
+  }
+  if (!spec.file) {
+    return {
+      ok: false,
+      status: "n/a",
+      detail: `no "file" declared — name one, or set scope "effective" to read the harness's own stack`,
+    };
+  }
+  const file = path.resolve(ctx.configDir, spec.file);
+  if (!fs.existsSync(file)) {
+    return {
+      ok: false,
+      status: fail(spec),
+      detail: `file not found: ${spec.file}`,
+    };
+  }
+  try {
+    return {
+      ok: true,
+      data: JSON.parse(fs.readFileSync(file, "utf8")),
+      where: spec.file,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      status: fail(spec),
+      detail: `unparseable JSON: ${String(e)}`,
+    };
+  }
+}
+
+/** " ← project (shadows user)" for an effective read; nothing for a single
+ * file, where there is only one place the value could have come from. */
+function attribution(
+  source: SettingsSource & { ok: true },
+  key: string,
+  arrays: HarnessProfile["settingsArrays"],
+): string {
+  if (!source.layers) return "";
+  const p = provenance(source.layers, key, arrays, getDotted);
+  if (p.from.length === 0) return "";
+  const shadow =
+    p.shadowed.length > 0 ? ` (shadows ${p.shadowed.join(", ")})` : "";
+  return ` ← ${p.from.join("+")}${shadow}`;
+}
+
 /** The label a probe reports itself under, mirroring the per-case labels. */
 function probeLabel(spec: ProbeSpec, harness: string): string {
   switch (spec.type) {
@@ -195,7 +306,7 @@ function probeLabel(spec: ProbeSpec, harness: string): string {
     case "flag-accepted":
       return `flag-accepted(${spec.flags.join(",")})`;
     case "config-key":
-      return `config-key(${spec.file})`;
+      return `config-key(${spec.scope === "effective" ? "effective" : (spec.file ?? "?")})`;
     case "transcript-field":
       return `transcript-field(${spec.glob})`;
     case "hook-registered":
@@ -255,7 +366,12 @@ function runKnownProbe(
   ctx: ProbeContext,
   versionArgs: string[],
 ): ProbeResult {
-  const profile = resolveProfile(ctx.harness, ctx.profileName);
+  const named = resolveProfile(ctx.harness, ctx.profileName);
+  const profile: HarnessProfile = {
+    ...named,
+    settingsLayers: ctx.settingsLayers ?? named.settingsLayers,
+    settingsArrays: ctx.settingsArrays ?? named.settingsArrays,
+  };
   // A probe the harness family cannot express is declared, never passed.
   if (profile.inapplicableProbes.includes(spec.type)) {
     return {
@@ -307,24 +423,15 @@ function runKnownProbe(
       };
     }
     case "config-key": {
-      const file = path.resolve(ctx.configDir, spec.file);
-      if (!fs.existsSync(file)) {
-        return {
-          probe: `config-key(${spec.file})`,
-          status: fail(spec),
-          detail: `file not found: ${spec.file}`,
-        };
+      const label = probeLabel(spec, ctx.harness);
+      const source = readSettings(spec, ctx, profile);
+      if (!source.ok) {
+        return { probe: label, status: source.status, detail: source.detail };
       }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-      } catch (e) {
-        return {
-          probe: `config-key(${spec.file})`,
-          status: fail(spec),
-          detail: `unparseable JSON: ${String(e)}`,
-        };
-      }
+      const parsed = source.data;
+      const where = source.layers ? ` [${source.where}]` : "";
+      const at = (key: string): string =>
+        attribution(source, key, profile.settingsArrays);
       // Three assertions over one file, reported together: the keys that must
       // exist, the values they must hold, and the names that must NOT exist.
       // Every failing one is named — a wrong value never hides a leftover key.
@@ -334,8 +441,13 @@ function runKnownProbe(
       const keys = spec.keys ?? [];
       if (keys.length > 0) {
         const missing = keys.filter((k) => getDotted(parsed, k) === undefined);
-        if (missing.length === 0) held.push(`keys present: ${keys.join(", ")}`);
-        else problems.push(`missing keys: ${missing.join(", ")}`);
+        if (missing.length === 0) {
+          held.push(
+            `keys present: ${keys.map((k) => `${k}${at(k)}`).join(", ")}`,
+          );
+        } else {
+          problems.push(`missing keys: ${missing.join(", ")}`);
+        }
       }
 
       const expected = Object.entries(spec.expect ?? {});
@@ -350,7 +462,9 @@ function runKnownProbe(
           }
         }
         if (wrong.length === 0) {
-          held.push(`values match: ${expected.map(([k]) => k).join(", ")}`);
+          held.push(
+            `values match: ${expected.map(([k]) => `${k}${at(k)}`).join(", ")}`,
+          );
         } else {
           problems.push(wrong.join("; "));
         }
@@ -368,7 +482,7 @@ function runKnownProbe(
           // setting looks configured while the feature runs at its default.
           problems.push(
             `declared absent but present: ${leftover
-              .map((k) => `${k} = ${show(getDotted(parsed, k))}`)
+              .map((k) => `${k}${at(k)} = ${show(getDotted(parsed, k))}`)
               .join(", ")}`,
           );
         }
@@ -376,15 +490,15 @@ function runKnownProbe(
 
       if (held.length === 0 && problems.length === 0) {
         return {
-          probe: `config-key(${spec.file})`,
+          probe: label,
           status: "n/a",
           detail: `nothing declared — the probe needs "keys", "expect" or "absent"`,
         };
       }
       return {
-        probe: `config-key(${spec.file})`,
+        probe: label,
         status: problems.length === 0 ? "pass" : fail(spec),
-        detail: (problems.length === 0 ? held : problems).join(" · "),
+        detail: `${(problems.length === 0 ? held : problems).join(" · ")}${where}`,
       };
     }
     case "transcript-field": {
@@ -444,32 +558,48 @@ function runKnownProbe(
       };
     }
     case "hook-registered": {
-      const file = path.resolve(ctx.configDir, spec.file);
-      if (!fs.existsSync(file)) {
+      const label = `hook-registered(${spec.event}~${spec.match})`;
+      const source = readSettings(spec, ctx, profile);
+      if (!source.ok) {
+        return { probe: label, status: source.status, detail: source.detail };
+      }
+      const key = `hooks.${spec.event}`;
+      const carries = (data: unknown): boolean =>
+        JSON.stringify(getDotted(data, key) ?? "").includes(spec.match);
+      const where = source.layers ? ` [${source.where}]` : "";
+      if (carries(source.data)) {
+        // Under an effective read, name the scope the hook lives in: a hook
+        // that moved between scopes is registered, not drifted, and the line
+        // should say so rather than leave the reader to guess.
+        const scopes = source.layers
+          ? source.layers
+              .filter((l) => l.state === "read" && carries(l.data))
+              .map((l) => l.name)
+          : [];
+        const from = scopes.length > 0 ? ` in ${scopes.join(", ")} scope` : "";
         return {
-          probe: `hook-registered(${spec.event})`,
-          status: fail(spec),
-          detail: `settings not found: ${spec.file}`,
+          probe: label,
+          status: "pass",
+          detail: `hook "${spec.match}" registered on ${spec.event}${from}${where}`,
         };
       }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-      } catch {
+      // Declared, present in a file, and still never run: a higher layer
+      // replaced the list it was in. The old single-file read called this a
+      // pass, which is the silent failure this tool exists to catch.
+      const shadowed = (source.layers ?? []).filter(
+        (l) => l.state === "read" && carries(l.data),
+      );
+      if (shadowed.length > 0) {
         return {
-          probe: `hook-registered(${spec.event})`,
+          probe: label,
           status: fail(spec),
-          detail: `unparseable settings JSON`,
+          detail: `hook "${spec.match}" is in ${shadowed.map((l) => l.name).join(", ")} scope but not in the effective settings — a higher layer overrides ${key}${where}`,
         };
       }
-      const events = getDotted(parsed, `hooks.${spec.event}`);
-      const found = JSON.stringify(events ?? "").includes(spec.match);
       return {
-        probe: `hook-registered(${spec.event}~${spec.match})`,
-        status: found ? "pass" : fail(spec),
-        detail: found
-          ? `hook "${spec.match}" registered on ${spec.event}`
-          : `no ${spec.event} hook matching "${spec.match}"`,
+        probe: label,
+        status: fail(spec),
+        detail: `no ${spec.event} hook matching "${spec.match}"${where}`,
       };
     }
     case "script": {

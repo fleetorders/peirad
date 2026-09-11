@@ -62,6 +62,8 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
     profileName: profile.name,
     harnessPath,
     harnessVersion: version,
+    settingsLayers: profile.settingsLayers,
+    settingsArrays: profile.settingsArrays,
   };
 
   const results: ProbeResult[] = [];

@@ -361,3 +361,33 @@ in exactly the case where nothing works at all.
 harness cannot run this manifest from a tracked hook without failing their
 pushes; the trigger belongs in a machine-local hook or a CI job where the
 harness is installed. That constraint is inherited from D-010, not new here.
+
+### D-016 — A settings probe judges the stack, and the precedence is profile data
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+A `config-key` or `hook-registered` probe may read the harness's whole settings
+stack rather than one file (`scope: "effective"`). Which files, in what order,
+and how values found in several of them combine are declared as data —
+`settingsLayers` and `settingsArrays` on the harness profile, overridable by a
+manifest for a harness the profiles do not know — never as code branching on a
+harness name. Reading one named file stays the default. A layer that will not
+parse fails the probe rather than being skipped.
+
+**Why:** a harness reads a stack and a probe read a file, so the probe was
+answering a question nobody asked. Both directions were wrong: a hook moved
+from project scope to user scope reported drift although nothing had broken,
+and a setting a higher layer overrode reported present although the harness
+never saw it — the second is the silent pass this tool exists to catch. Keeping
+the stack as data follows D-001: another harness's precedence is a profile
+edit, not an engine change. The unparseable layer fails rather than degrades
+quietly because the effective settings are genuinely unknowable while one file
+is broken, and the harness reading the same stack is no better off.
+
+**Consequences:** the verdict must name the scope a setting came from — without
+it "present" is no more informative than before — so every effective read
+carries its provenance and the layers it read. The layer paths are documented
+harness locations, expanded from `{home}`/`{configDir}` at run time, so nothing
+in the profile names a particular machine. A stack whose files are all absent
+is not an error: the merged settings are empty and the declared keys are
+missing, which is the correct verdict.
