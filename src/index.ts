@@ -49,6 +49,8 @@ export type {
   EnvSource,
   PathKind,
 } from "./environment.js";
+export { typeCoverage, describeTypeCoverage } from "./coverage.js";
+export type { TypeCoverage } from "./coverage.js";
 export { runLive } from "./live.js";
 export type { LiveOptions, LiveOutcome, LiveProfile } from "./live.js";
 export { runManifest, observeManifest, runLedger } from "./doctor.js";

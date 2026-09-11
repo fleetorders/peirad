@@ -533,3 +533,27 @@ The turn's extra arguments and prompts are declared from each harness's help
 text; if a build rejects one, `live:turn` fails naming the harness's own error.
 The codex profile passes that harness's hook-trust bypass, scoped to the one
 invocation whose only hook is peirad's fixture.
+
+### D-021 — Every verdict names the probe types its manifest declares, and the ones it does not
+
+**Scope:** repo · **Decided:** 2026-09-11
+
+A verdict carries a coverage line: the probe types this build offers that the
+manifest declares, the ones it does not, and any type the manifest names that
+the build does not know. `version` is left out of both lists, since it stamps
+the verdict rather than checking a dependency. The line never changes the exit
+code.
+
+**Why:** a pass says only that what was declared still holds. A manifest that
+declares that the harness binary exists passes exactly as a manifest that pins
+flags, hooks and transcript fields does, and the reader of the verdict cannot
+tell the two apart. Listing the undeclared types costs no inference about the
+project — it is read straight off the manifest — so it can be on every run
+without being wrong about anything.
+
+**Consequences:** the list is relative to the running build's probe types, so
+it grows as probe types are added, and an older build lists fewer. It is not a
+score and has no threshold: an integration may rightly need only two probe
+types, and the line only makes that choice visible. Naming what the project's
+own code uses but never declared is a different question, which needs a scan
+of the code; that lives in its own command rather than on every verdict.

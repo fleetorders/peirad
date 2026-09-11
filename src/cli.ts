@@ -5,6 +5,7 @@ import path from "node:path";
 import { loadManifest } from "./manifest.js";
 import { runLedger, runManifest, type Verdict } from "./doctor.js";
 import { BASELINE_FILE, type Moved } from "./baseline.js";
+import { describeTypeCoverage } from "./coverage.js";
 import { triageCommand } from "./triage.js";
 import { precedentCommand } from "./precedent.js";
 
@@ -27,6 +28,9 @@ function render(v: Verdict): void {
   for (const note of v.notes) {
     process.stdout.write(`  ${pc.dim("note")}  ${pc.dim(note)}\n`);
   }
+  process.stdout.write(
+    `  ${pc.dim("coverage")} ${pc.dim(describeTypeCoverage(v.coverage))}\n`,
+  );
   const summary = v.ok
     ? pc.green("PASS — integration holds")
     : `${v.blocked ? pc.red(`${v.blocked} blocked`) : ""}${v.blocked && v.degraded ? ", " : ""}${v.degraded ? pc.yellow(`${v.degraded} degraded`) : ""} — drift detected`;

@@ -24,6 +24,7 @@ import {
 } from "./baseline.js";
 import type { ProbeContext } from "./probes.js";
 import { runLive, type LiveOptions } from "./live.js";
+import { typeCoverage, type TypeCoverage } from "./coverage.js";
 
 export interface Verdict {
   name: string;
@@ -47,6 +48,10 @@ export interface Verdict {
   /** What moved since the recorded baseline that no probe declares — a third
    * register, attached by a caller that compared one. Never counted in `ok`. */
   baseline?: BaselineReport;
+  /** Which probe types the manifest declares and which it does not — so a
+   * short manifest that passes cannot read like a thorough one. Never counted
+   * in `ok`. */
+  coverage: TypeCoverage;
   /** Present when a live turn was asked for: whether one ran (false means
    * nothing was spent) and the tokens the harness reported for it. */
   live?: { turned: boolean; tokens: number | null };
@@ -143,6 +148,7 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
     date: opts.date,
     notes,
     results,
+    coverage: typeCoverage(manifest),
     ...(live ? { live } : {}),
     degraded,
     blocked,

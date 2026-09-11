@@ -32,6 +32,7 @@ my integration — harness claude (claude) 2.1.223 · peirad 0.5.0 · 2026-08-15
   ok    flag-accepted(-p,--allowedTools): all flags present in --help
   ok    config-key(settings.json): keys present: hooks.PreToolUse
   DEGR  transcript-field(projects/**/*.jsonl): schema drift — missing: message
+  coverage declares command-exists, flag-accepted, config-key, transcript-field · not declared: hook-registered, script, harness-reports, env
   1 degraded — drift detected
 ```
 
@@ -69,6 +70,11 @@ You declare probes; each runs against the live harness:
 A non-critical probe that drifts reports `degraded`; a probe marked `critical`
 reports `blocked`; a probe its [harness profile](#harness-profiles) says
 cannot apply reports `n/a`. Nothing throws — one drift never hides the next.
+
+Every verdict ends with a `coverage` line naming the probe types your manifest
+declares and the ones it does not. A pass means what you declared still holds;
+the line keeps a two-probe manifest that passes from reading like a thorough
+one. It never changes the exit code, and `--json` carries it as `coverage`.
 
 ### Asserting a value, not just a key
 

@@ -19,6 +19,8 @@ than left to rot. What exists today is described in the README, not here.
   _Shipped 2026-09-11._
 - Prove the declared hooks, transcript fields and flags in one real turn, in an
   isolated configuration directory, opt-in (`--live`). _Shipped 2026-09-11._
+- Name, on every verdict, which probe types the manifest declares and which it
+  does not. _Shipped 2026-09-11._
 - A published compatibility matrix per harness (verified-against versions).
 
 ## Next
