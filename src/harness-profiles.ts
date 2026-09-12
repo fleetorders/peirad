@@ -7,6 +7,8 @@
  * override the argv templates for a CLI the profiles do not know, and
  * `settingsLayers` overrides where that CLI keeps its settings stack.
  */
+import os from "node:os";
+import path from "node:path";
 import type { Manifest } from "./manifest.js";
 import type { HarnessReport } from "./reports.js";
 import type { LiveProfile } from "./live.js";
@@ -111,6 +113,23 @@ export interface HarnessProfile {
 /** How a harness combines list values found in more than one settings layer. */
 export type ArrayMerge = "concat" | "override";
 
+/** The harness's configuration directory as the harness itself resolves it:
+ * the variable that relocates it (profile data) wins when set, else the
+ * default with `{home}` expanded. The settings stack and the live run must
+ * agree on where this is, or a probe can report a passing setting from a
+ * configuration the harness never loads. */
+export function harnessConfigDir(
+  live: LiveProfile,
+  env: NodeJS.ProcessEnv,
+): string {
+  const fromEnv = env[live.configDir.env];
+  return path.resolve(
+    fromEnv && fromEnv.length > 0
+      ? fromEnv
+      : live.configDir.default.replace(/\{home\}/g, os.homedir()),
+  );
+}
+
 export function parseJsonLenient(text: string): unknown {
   try {
     return JSON.parse(text);
@@ -176,9 +195,11 @@ const claudeProfile: HarnessProfile = {
   // then the local override beside it, then the machine policy file an
   // administrator controls. Hook lists JOIN across scopes — every registered
   // hook runs, whichever file declared it — so a hook that merely moved scope
-  // is not drift.
+  // is not drift. The user layer lives in the harness's own configuration
+  // directory, relocation variable honoured, exactly where the harness reads
+  // it (`{userConfigDir}`).
   settingsLayers: [
-    { name: "user", path: "{home}/.claude/settings.json" },
+    { name: "user", path: "{userConfigDir}/settings.json" },
     { name: "project", path: "{configDir}/.claude/settings.json" },
     { name: "local", path: "{configDir}/.claude/settings.local.json" },
     {
@@ -222,6 +243,7 @@ const claudeProfile: HarnessProfile = {
     turnArgs: ["--restricted", "--strict-mcp-config"],
     toolEvents: ["PreToolUse", "PostToolUse"],
     toolArgs: ["--tools", "Bash", "--allowedTools", "Bash(true)"],
+    plainEvents: ["SessionStart", "UserPromptSubmit", "Stop"],
     plainPrompt: "Reply with the single word: done",
     toolPrompt:
       "Use the Bash tool to run the command `true`, then reply with the single word: done",
@@ -273,10 +295,11 @@ const codexProfile: HarnessProfile = {
   // already read, so `config-key` and `hook-registered` apply — a manifest
   // points `file` at that JSON. Only `config.toml` (TOML) is out of reach.
   inapplicableProbes: [],
-  // One JSON layer, in the user's own configuration directory. A single-layer
-  // stack still answers the question a probe with `scope: "effective"` asks —
-  // it just answers it with one file, and says so.
-  settingsLayers: [{ name: "user", path: "{home}/.codex/hooks.json" }],
+  // One JSON layer, in the user's own configuration directory — the same
+  // place the live run resolves, relocation variable honoured. A
+  // single-layer stack still answers the question a probe with `scope:
+  // "effective"` asks — it just answers it with one file, and says so.
+  settingsLayers: [{ name: "user", path: "{userConfigDir}/hooks.json" }],
   settingsArrays: "concat",
   // Both reports have a JSON form. The doctor keys its checks by id, so the
   // records are that object's values; each carries its own `id`.
@@ -296,6 +319,7 @@ const codexProfile: HarnessProfile = {
     turnArgs: ["--dangerously-bypass-hook-trust"],
     toolEvents: ["PreToolUse", "PostToolUse"],
     toolArgs: [],
+    plainEvents: ["UserPromptSubmit", "Stop"],
     plainPrompt: "Reply with the single word: done",
     toolPrompt:
       "Run the shell command `true`, then reply with the single word: done",

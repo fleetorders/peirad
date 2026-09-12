@@ -253,12 +253,20 @@ export function runLedger(
     notes.push(`baseline not compared: ${read.reason}`);
     return { ...verdict, notes };
   }
-  const report = compareSurface(
-    read.baseline,
-    observeManifest(manifest, opts),
-    manifest,
-    opts.label,
-  );
+  // A baseline loads automatically, so nothing about it may cost the run its
+  // verdict: a comparison that cannot happen (or cannot complete) is a note.
+  let report: BaselineReport;
+  try {
+    report = compareSurface(
+      read.baseline,
+      observeManifest(manifest, opts),
+      manifest,
+      opts.label,
+    );
+  } catch (e) {
+    notes.push(`baseline not compared: ${String(e)}`);
+    return { ...verdict, notes };
+  }
   return { ...verdict, notes, baseline: report };
 }
 

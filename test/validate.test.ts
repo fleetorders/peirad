@@ -215,7 +215,11 @@ describe("what validate only warns about", () => {
       {
         harness: "claude",
         probes: [
-          { type: "transcript-field", glob: "projects/?/{a,b}.jsonl", fields: ["type"] },
+          {
+            type: "transcript-field",
+            glob: "projects/?/{a,b}.jsonl",
+            fields: ["type"],
+          },
         ],
       },
       ".",

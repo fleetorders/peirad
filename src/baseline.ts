@@ -265,24 +265,60 @@ export function readBaseline(file: string): BaselineRead {
   ) {
     return { ok: false, reason: `${file} is missing recorded surface fields` };
   }
+  // Names-only is the file's whole promise. A hand-edited baseline that puts
+  // anything but strings in one of these lists would throw mid-comparison, so
+  // the shape is refused here — where refusing is a note, not a lost verdict.
+  if (!b.help.every((t) => typeof t === "string")) {
+    return {
+      ok: false,
+      reason: `${file} records a help entry that is not a string`,
+    };
+  }
+  if (typeof b.recorded !== "string") {
+    return { ok: false, reason: `${file} records no date` };
+  }
+  for (const [source, paths] of Object.entries(b.settings)) {
+    if (!Array.isArray(paths) || !paths.every((p) => typeof p === "string")) {
+      return {
+        ok: false,
+        reason: `${file} records settings(${source}) as something other than a list of key names`,
+      };
+    }
+  }
+  for (const [glob, fields] of Object.entries(b.transcripts)) {
+    if (!Array.isArray(fields) || !fields.every((f) => typeof f === "string")) {
+      return {
+        ok: false,
+        reason: `${file} records transcript(${glob}) as something other than a list of field names`,
+      };
+    }
+  }
   return { ok: true, baseline: b as Baseline };
 }
 
-/** Names the manifest declares on each surface. Those are the probes' job;
- * the ledger reports only what nobody declared. */
+/** Names the manifest declares on each surface — settings per SOURCE and
+ * transcripts per GLOB, because a name declared against one file says
+ * nothing about another: the probe judges the source it reads, and the ledger
+ * must not let a declaration in one file hide movement in another. Those
+ * names are the probes' job; the ledger reports only what nobody declared. */
 function declaredNames(manifest: Manifest): {
   help: Set<string>;
-  settings: Set<string>;
-  transcript: Set<string>;
+  settings: Record<string, Set<string>>;
+  transcript: Record<string, Set<string>>;
 } {
   const help = new Set<string>();
-  const settings = new Set<string>();
-  const transcript = new Set<string>();
+  const settings: Record<string, Set<string>> = {};
+  const transcript: Record<string, Set<string>> = {};
   for (const spec of manifest.probes) {
     if (spec.type === "flag-accepted") spec.flags.forEach((f) => help.add(f));
-    declaredSettingsKeys(spec).forEach((k) => settings.add(k));
+    const source = settingsSourceName(spec);
+    if (source) {
+      const names = (settings[source] ??= new Set<string>());
+      for (const k of declaredSettingsKeys(spec)) names.add(k);
+    }
     if (spec.type === "transcript-field") {
-      spec.fields.forEach((f) => transcript.add(f));
+      const names = (transcript[spec.glob] ??= new Set<string>());
+      spec.fields.forEach((f) => names.add(f));
     }
   }
   return { help, settings, transcript };
@@ -349,7 +385,13 @@ export function compareSurface(
       untracked.push(`settings(${source})`);
       continue;
     }
-    push("settings", source, before, paths, declared.settings);
+    push(
+      "settings",
+      source,
+      before,
+      paths,
+      declared.settings[source] ?? new Set(),
+    );
   }
   for (const [glob, fields] of Object.entries(current.transcripts)) {
     const before = baseline.transcripts[glob];
@@ -357,7 +399,13 @@ export function compareSurface(
       untracked.push(`transcript(${glob})`);
       continue;
     }
-    push("transcript", glob, before, fields, declared.transcript);
+    push(
+      "transcript",
+      glob,
+      before,
+      fields,
+      declared.transcript[glob] ?? new Set(),
+    );
   }
 
   return { file, recorded: baseline.recorded, moved, untracked };

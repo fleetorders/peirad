@@ -339,8 +339,10 @@ returns a dated verdict.
 ```
 
 Relative `file`/`glob` paths resolve against the manifest's directory, or pass
-`--config-dir` to point at your harness config location. Add `--json` for a
-machine-readable verdict.
+`--config-dir` to point at your harness config location. A `glob` may also
+carry `{home}` and `{configDir}` templates — `{home}/.claude/projects/**/*.jsonl`
+reaches the harness's own configuration directory without dragging every other
+probe's base directory along. Add `--json` for a machine-readable verdict.
 
 ## Validate the manifest
 

@@ -36,13 +36,29 @@ export interface LayerVars {
   home: string;
   /** The base directory a manifest's relative paths resolve against. */
   configDir: string;
+  /** The harness's own configuration directory, as the harness resolves it —
+   * the variable that relocates it honoured, not just the default beneath the
+   * home directory. Absent when the profile declares no such directory, and a
+   * layer that needs it then reads as absent rather than as an unexpanded
+   * path. */
+  userConfigDir?: string;
 }
 
-/** Expand `{home}` / `{configDir}` in a layer path, and pick the
- * platform-specific spelling where the layer declares one. */
-export function layerPath(layer: SettingsLayer, vars: LayerVars): string {
+/** Expand `{home}` / `{configDir}` / `{userConfigDir}` in a layer path, and
+ * pick the platform-specific spelling where the layer declares one. */
+export function layerPath(
+  layer: SettingsLayer,
+  vars: LayerVars,
+): string | null {
   const template = layer.platformPaths?.[process.platform] ?? layer.path;
+  if (
+    template.includes("{userConfigDir}") &&
+    vars.userConfigDir === undefined
+  ) {
+    return null;
+  }
   const expanded = template
+    .replace(/\{userConfigDir\}/g, vars.userConfigDir ?? "")
     .replace(/\{home\}/g, vars.home)
     .replace(/\{configDir\}/g, vars.configDir);
   return path.resolve(expanded);
@@ -55,6 +71,13 @@ export function loadLayers(
 ): LoadedLayer[] {
   return layers.map((layer) => {
     const file = layerPath(layer, vars);
+    if (file === null) {
+      return {
+        name: layer.name,
+        path: layer.platformPaths?.[process.platform] ?? layer.path,
+        state: "absent" as const,
+      };
+    }
     if (!fs.existsSync(file)) {
       return { name: layer.name, path: file, state: "absent" as const };
     }

@@ -47,10 +47,18 @@ const SECRET_NAME =
 const PLAIN_VALUE = /^[\w.:@/+-]{1,80}$/;
 // A value that reads as a filesystem path, for the one line that needs it.
 const PATHLIKE = /^[^\s]{1,240}$/;
+// A URL carrying a userinfo part (`scheme://user:password@host`) — a
+// credential embedded in a value that is otherwise short and plain, as proxy
+// variables often are. Short and plain is not the same as safe to print.
+const URL_USERINFO = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#\s]*@/;
 
 /** Whether a variable's value may appear in a verdict line. */
 export function safeToShow(name: string, value: string): boolean {
-  return !SECRET_NAME.test(name) && PLAIN_VALUE.test(value);
+  return (
+    !SECRET_NAME.test(name) &&
+    !URL_USERINFO.test(value) &&
+    PLAIN_VALUE.test(value)
+  );
 }
 
 const isSet = (v: string | undefined): v is string =>
@@ -250,9 +258,13 @@ export function evaluateEnv(
       });
       if (!r.ok) {
         // The one place a value is worth printing: "points at X, which does
-        // not exist" is the whole finding. Still never for a credential name.
+        // not exist" is the whole finding. Still never for a credential name,
+        // nor for a URL with a userinfo part — the credential it carries is
+        // the last thing a verdict line should repeat.
         const shown =
-          !SECRET_NAME.test(name) && PATHLIKE.test(got)
+          !SECRET_NAME.test(name) &&
+          PATHLIKE.test(got) &&
+          !URL_USERINFO.test(got)
             ? ` ${show(got, 120)}`
             : " (value not shown)";
         wrong.push(`${name}${from(name)} ${r.why}:${shown}`);

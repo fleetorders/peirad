@@ -92,6 +92,34 @@ describe("merging a settings stack", () => {
       },
     );
   });
+
+  it("reads a {userConfigDir} layer where the variable points, and as absent when it is unknown", () => {
+    const relocated = path.join(dir, "relocated-home");
+    fs.mkdirSync(relocated);
+    fs.writeFileSync(
+      path.join(relocated, "settings.json"),
+      JSON.stringify({ voice: { enabled: true } }),
+    );
+    const layer: SettingsLayer = {
+      name: "user",
+      path: "{userConfigDir}/settings.json",
+    };
+    const withDir = loadLayers([layer], {
+      ...layerVars(dir),
+      userConfigDir: relocated,
+    });
+    expect(withDir[0]).toMatchObject({ state: "read" });
+    expect(effectiveSettings(withDir, "concat")).toEqual({
+      voice: { enabled: true },
+    });
+    // No harness configuration directory known: the layer is absent under its
+    // declared template, never a half-expanded path.
+    const withoutDir = loadLayers([layer], layerVars(dir));
+    expect(withoutDir[0]).toMatchObject({
+      state: "absent",
+      path: "{userConfigDir}/settings.json",
+    });
+  });
 });
 
 describe("config-key with scope: effective", () => {
@@ -152,6 +180,33 @@ describe("config-key with scope: effective", () => {
     const r = runProbe({ type: "config-key", keys: ["x"] }, ctx(), []);
     expect(r.status).toBe("n/a");
     expect(r.detail).toContain('no "file" declared');
+  });
+
+  it("reads the user layer where the harness's configuration variable points", () => {
+    // The claude profile keeps its user settings in the harness's own
+    // configuration directory; when CLAUDE_CONFIG_DIR relocates it, the
+    // effective read must follow — a stack that kept reading beneath {home}
+    // would pass a setting the harness itself never loads.
+    const relocated = path.join(dir, "claude-config");
+    fs.mkdirSync(relocated, { recursive: true });
+    fs.writeFileSync(
+      path.join(relocated, "settings.json"),
+      JSON.stringify({ voice: { enabled: true } }),
+    );
+    const real = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = relocated;
+    try {
+      const r = runProbe(
+        { type: "config-key", scope: "effective", keys: ["voice.enabled"] },
+        { harness: "claude", configDir: dir, profileName: "claude" },
+        [],
+      );
+      expect(r.status).toBe("pass");
+      expect(r.detail).toContain("voice.enabled ← user");
+    } finally {
+      if (real === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = real;
+    }
   });
 });
 

@@ -180,7 +180,9 @@ describe("the draft manifest", () => {
       glob: string;
       fields: string[];
     };
-    expect(transcript.glob).toBe("projects/**/*.jsonl");
+    // The drafted glob points into the harness's own configuration directory,
+    // so it works from the project dir the drafted hook probes read.
+    expect(transcript.glob).toBe("{home}/.claude/projects/**/*.jsonl");
   });
 
   it("is deterministic: the same project drafts the same manifest", () => {

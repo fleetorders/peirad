@@ -8,6 +8,7 @@ import {
   runProbe,
   type ProbeContext,
 } from "../src/probes.js";
+import { expandGlob } from "../src/glob.js";
 import {
   loadManifest,
   type Manifest,
@@ -234,6 +235,33 @@ describe("glob shapes", () => {
 
   it("returns null when the middle segment has no match", () => {
     expect(found("a/*/c.jsonl")).toBeNull();
+  });
+
+  it("expands {home} and {configDir} templates, and walks an absolute glob", () => {
+    // Synthetic roots, so no test names a real directory layout.
+    expect(
+      expandGlob("{home}/.claude/projects/**/*.jsonl", {
+        home: "/h",
+        configDir: "/p",
+      }),
+    ).toBe("/h/.claude/projects/**/*.jsonl");
+    expect(
+      expandGlob("{configDir}/a/*.jsonl", {
+        home: "/h",
+        configDir: "/p",
+      }),
+    ).toBe("/p/a/*.jsonl");
+    // An absolute pattern — with or without a template behind it — matches the
+    // whole path from the filesystem root.
+    const abs = newestMatch(tree, path.join(tree, "a", "**", "*.jsonl"));
+    expect(abs).not.toBeNull();
+    expect(path.relative(tree, abs!.file)).toBe(
+      path.join("a", "sub", "b.jsonl"),
+    );
+    const templated = newestMatch(tree, "{configDir}/a/sub/*.jsonl");
+    expect(path.relative(tree, templated!.file)).toBe(
+      path.join("a", "sub", "b.jsonl"),
+    );
   });
 });
 

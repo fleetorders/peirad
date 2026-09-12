@@ -29,6 +29,7 @@ import path from "node:path";
 import type { Manifest } from "./manifest.js";
 import {
   expandArgs,
+  harnessConfigDir,
   parseJsonLenient,
   type HarnessProfile,
 } from "./harness-profiles.js";
@@ -38,7 +39,7 @@ import {
   type ProbeResult,
   type ProbeStatus,
 } from "./probes.js";
-import { globRegExp, globRoot } from "./glob.js";
+import { globRegExp, globRoot, listMatches } from "./glob.js";
 import { fold, getDotted } from "./values.js";
 
 /** How a harness is driven through one live turn — profile data. */
@@ -60,6 +61,10 @@ export interface LiveProfile {
   toolEvents: string[];
   /** Argv added when a tool event must fire. */
   toolArgs: string[];
+  /** Hook events a minimal plain turn exercises on its own. An event in
+   * neither list has no scenario this run can drive — a fixture hook on it
+   * that did not fire is reported as unchecked, never as drift. */
+  plainEvents: string[];
   /** The prompt when no tool event is declared. */
   plainPrompt: string;
   /** The prompt when one is: a single harmless tool call. */
@@ -163,18 +168,10 @@ export function sessionIdFrom(
   return typeof raw === "string" && SESSION_ID.test(raw) ? raw : null;
 }
 
-/** The harness's configuration directory, as the turn will use it. */
-export function harnessConfigDir(
-  live: LiveProfile,
-  env: NodeJS.ProcessEnv,
-): string {
-  const fromEnv = env[live.configDir.env];
-  return path.resolve(
-    fromEnv && fromEnv.length > 0
-      ? fromEnv
-      : live.configDir.default.replace(/\{home\}/g, os.homedir()),
-  );
-}
+/** The harness's configuration directory, as the turn will use it — shared
+ * with the settings stack, so a probe and a live turn can never disagree
+ * about where the harness reads. */
+export { harnessConfigDir };
 
 /** The transcript file of one session: the newest file under the declared
  * pattern whose path names that session and that was written since `since`. */
@@ -359,15 +356,24 @@ export function runLive(
     fs.mkdirSync(work);
     const results: ProbeResult[] = [];
 
+    // The login check, the turn and any cleanup command all run from a
+    // temporary working directory, so a harness named by a RELATIVE path must
+    // become absolute first — resolved where the run started, where the
+    // deterministic probes found it — or the first spawn dies of ENOENT and
+    // reads as "not signed in".
+    const harness =
+      ctx.harnessPath ??
+      (/[/\\]/.test(ctx.harness) ? path.resolve(ctx.harness) : ctx.harness);
+
     // 1. Login, at no cost, on the harness's own configuration.
-    const auth = spawnSync(ctx.harness, live.authCheck.args, {
+    const auth = spawnSync(harness, live.authCheck.args, {
       env,
       cwd: work,
       encoding: "utf8",
       timeout: 30_000,
       input: "",
     });
-    const authCommand = [ctx.harness, ...live.authCheck.args].join(" ");
+    const authCommand = [harness, ...live.authCheck.args].join(" ");
     if (
       auth.error ||
       !new RegExp(live.authCheck.loggedIn, "m").test(
@@ -424,7 +430,16 @@ export function runLive(
       .filter((a) => a.startsWith("-"))
       .map((a) => a.split("=")[0]!);
     const started = Date.now();
-    const turn = spawnSync(ctx.harness, args, {
+    // Proof of creation, taken before anything runs: the transcripts that
+    // already exist where this turn's session will write one. A resumed
+    // conversation appends to its own file, which passes any freshness check —
+    // only a file that was NOT here when the turn began is one this
+    // invocation created, and only that one may be removed (D-024).
+    const configDir = harnessConfigDir(live, env);
+    const existedBefore = new Set(
+      listMatches(configDir, live.transcript.replace(/\{session\}/g, "*")),
+    );
+    const turn = spawnSync(harness, args, {
       env,
       cwd: work,
       encoding: "utf8",
@@ -432,7 +447,6 @@ export function runLive(
       input: "",
     });
     const session = sessionIdFrom(turn.stdout ?? "", live.sessionId);
-    const configDir = harnessConfigDir(live, env);
     const transcript = session
       ? findSessionTranscript(configDir, live.transcript, session, started)
       : null;
@@ -539,6 +553,8 @@ export function runLive(
         ? fs.readFileSync(marker, "utf8").split("\n").filter(Boolean)
         : [];
       for (const event of events) {
+        const driven =
+          live.plainEvents.includes(event) || live.toolEvents.includes(event);
         results.push(
           fired.includes(event)
             ? {
@@ -546,29 +562,49 @@ export function runLive(
                 status: "pass",
                 detail: `a fixture hook on ${event} ran during a real turn`,
               }
-            : {
-                probe: `live:hook-fired(${event})`,
-                status: failFor(manifest, "hook-registered", event),
-                detail: `a fixture hook on ${event} was passed to the turn and did not run${needsTool && live.toolEvents.includes(event) ? " (the turn was asked for one tool call)" : ""}`,
-              },
+            : driven
+              ? {
+                  probe: `live:hook-fired(${event})`,
+                  status: failFor(manifest, "hook-registered", event),
+                  detail: `a fixture hook on ${event} was passed to the turn and did not run${needsTool && live.toolEvents.includes(event) ? " (the turn was asked for one tool call)" : ""}`,
+                }
+              : {
+                  // Declared, registered, and never triggered: the event
+                  // fires on an action no scenario this run performs, so its
+                  // absence says nothing about the integration. Unchecked —
+                  // declared, never passed — is the honest register.
+                  probe: `live:hook-fired(${event})`,
+                  status: "n/a",
+                  detail: `a fixture hook on ${event} was passed to the turn and did not run — no scenario this run drives fires ${event}; it stays registered and unchecked`,
+                },
         );
       }
       return { results, tokens, turned: true };
     } finally {
       // 4. Remove exactly the turn's session — whether or not the checks held,
-      //    and only once the transcript has been read.
+      //    and only once the transcript has been read — but only a session
+      //    this invocation created: one whose transcript already existed when
+      //    the turn began is a conversation the user had before peirad ran.
       if (session && transcript) {
-        results.push(
-          removeSession(
-            live,
-            ctx.harness,
-            env,
-            work,
-            configDir,
-            transcript.file,
-            session,
-          ),
-        );
+        if (existedBefore.has(transcript.file)) {
+          results.push({
+            probe: "live:cleanup",
+            status: "n/a",
+            detail: `left ${path.relative(configDir, transcript.file)} in place — it already existed when the turn began, so this invocation did not create the session (a resumed conversation is never deleted)`,
+          });
+        } else {
+          results.push(
+            removeSession(
+              live,
+              harness,
+              env,
+              work,
+              configDir,
+              transcript.file,
+              session,
+            ),
+          );
+        }
       } else {
         results.push({
           probe: "live:cleanup",

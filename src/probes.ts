@@ -12,6 +12,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   unknownProbeFields,
@@ -19,6 +20,7 @@ import {
   type SettingsScope,
 } from "./manifest.js";
 import {
+  harnessConfigDir,
   resolveProfile,
   type ArrayMerge,
   type HarnessProfile,
@@ -38,7 +40,7 @@ import {
   findExecutable,
   type EnvSource,
 } from "./environment.js";
-import { listMatches } from "./glob.js";
+import { expandGlob, listMatches } from "./glob.js";
 import {
   describeLayers,
   effectiveSettings,
@@ -145,13 +147,22 @@ export function resolveBinary(harness: string): string | null {
 
 /** The match with the newest mtime: the transcript the current build wrote,
  * not whichever file sorts first. Ties keep the first-listed (name order)
- * file, so the pick stays deterministic. */
+ * file, so the pick stays deterministic. A `{home}`/`{configDir}` template in
+ * the pattern expands here, so a glob can point where the harness keeps its
+ * transcripts without dragging every other probe's base directory along. */
 export function newestMatch(
   base: string,
   pattern: string,
 ): { file: string; mtime: Date } | null {
+  const expanded = expandGlob(pattern, {
+    home: os.homedir(),
+    configDir: path.resolve(base),
+  });
+  const searchBase = path.isAbsolute(expanded)
+    ? path.parse(expanded).root
+    : base;
   let best: { file: string; mtime: Date } | null = null;
-  for (const file of listMatches(base, pattern)) {
+  for (const file of listMatches(searchBase, expanded)) {
     let mtime: Date;
     try {
       mtime = fs.statSync(file).mtime;
@@ -187,7 +198,16 @@ export function readSettings(
         detail: `harness profile "${profile.name}" declares no settings stack — name a file instead of scope "effective"`,
       };
     }
-    const layers = loadLayers(declared, layerVars(ctx.configDir));
+    const vars = layerVars(ctx.configDir);
+    // The stack is read where the harness itself reads it: a layer beneath
+    // the harness's configuration directory follows the variable that
+    // relocates it, exactly as the live run does, so an effective read can
+    // never report a passing setting from a configuration the harness never
+    // loads.
+    if (profile.live) {
+      vars.userConfigDir = harnessConfigDir(profile.live, process.env);
+    }
+    const layers = loadLayers(declared, vars);
     const broken = layers.filter((l) => l.state === "unreadable");
     if (broken.length > 0) {
       // The effective settings are unknowable while a layer will not parse,

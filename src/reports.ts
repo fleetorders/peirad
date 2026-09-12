@@ -97,12 +97,33 @@ export function parseReport(
       };
     }
     const at = report.records ? getDotted(doc, report.records) : doc;
-    if (Array.isArray(at)) return { ok: true, records: at.filter(isRecord) };
+    if (Array.isArray(at)) {
+      // An element that is not an object is a changed shape, not a record to
+      // drop: filtering it out would turn "the report is unreadable" into a
+      // valid empty report — a readability-only probe would then PASS a
+      // schema it never read.
+      const invalid = at.filter((x) => !isRecord(x)).length;
+      if (invalid > 0) {
+        return {
+          ok: false,
+          reason: `${invalid} of ${at.length} entries are not objects — the report's shape changed`,
+        };
+      }
+      return { ok: true, records: at as ReportRecord[] };
+    }
     if (isRecord(at)) {
-      return {
-        ok: true,
-        records: report.records ? Object.values(at).filter(isRecord) : [at],
-      };
+      if (report.records) {
+        const values = Object.values(at);
+        const invalid = values.filter((x) => !isRecord(x)).length;
+        if (invalid > 0) {
+          return {
+            ok: false,
+            reason: `${invalid} of ${values.length} entries at "${report.records}" are not objects — the report's shape changed`,
+          };
+        }
+        return { ok: true, records: values as ReportRecord[] };
+      }
+      return { ok: true, records: [at] };
     }
     const keys = isRecord(doc) ? Object.keys(doc).slice(0, 8).join(", ") : "";
     return {

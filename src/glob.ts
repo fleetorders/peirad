@@ -51,10 +51,27 @@ export function globRoot(base: string, pattern: string): string {
   );
 }
 
+/** Expand `{home}` and `{configDir}` in a glob, so one pattern can reach
+ * outside the manifest's base directory: a harness keeps its transcripts in
+ * its own configuration directory, which is not the project's, and no single
+ * relative base can express both. An expanded pattern may be absolute; the
+ * matcher walks it from the filesystem root. */
+export function expandGlob(
+  pattern: string,
+  vars: { home: string; configDir: string },
+): string {
+  return pattern
+    .replace(/\{home\}/g, vars.home)
+    .replace(/\{configDir\}/g, vars.configDir);
+}
+
 /** Every file under `base` whose path relative to `base` matches the
  * pattern. Callers sample by recency, never by listing order. */
 export function listMatches(base: string, pattern: string): string[] {
   const matcher = globRegExp(pattern);
+  // `path.relative` strips the leading separator off a root-relative path,
+  // which an absolute pattern needs to keep — base "/" must match "/Users/…".
+  const leading = base === path.parse(base).root ? "/" : "";
   const found: string[] = [];
   const walk = (dir: string): void => {
     let entries: fs.Dirent[];
@@ -67,7 +84,9 @@ export function listMatches(base: string, pattern: string): string[] {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) walk(full);
       else if (e.isFile()) {
-        const rel = path.relative(base, full).split(path.sep).join("/");
+        const rel = `${leading}${path.relative(base, full)}`
+          .split(path.sep)
+          .join("/");
         if (matcher.test(rel)) found.push(full);
       }
     }
