@@ -658,3 +658,35 @@ harnesses, which is why the ceiling default is generous and stays a
 command-line value. The same change normalises the codex profile's usage report
 so `input_tokens` counts only uncached input, as the other profile reports it;
 before, any total added that harness's cache twice.
+
+### D-025 — This tool checks what the caller cannot; it never replaces a guard inside the call
+
+**Scope:** repo · **Decided:** 2026-09-12
+
+A project that drives an agent CLI itself usually guards its own calls: it strips environment
+variables from the child so a call cannot be diverted onto another vendor or a metered key, it
+runs in a scratch directory so the CLI does not load that project's own agent contract, hooks
+and servers into a one-answer call, and it kills a child that hangs. peirad replaces none of
+that and is never offered as a substitute for it. It observes and reports; it cannot shape
+another process's environment, its working directory or its lifetime. What it checks is the
+surface such a guard depends on and cannot verify for itself: that the binary is there, that
+the flags the invocation passes still parse, that a declared hook is live in the harness's
+merged settings, that a declared server still connects, that a transcript still carries the
+fields a reader reads.
+
+**Why:** the two look alike from a distance and are different jobs. A guard makes the wrong
+call impossible at the moment it is made; a checker says whether the ground the caller stands
+on has moved. Trading the first for the second exchanges a guarantee for a report, and it can
+invert the verdict as well: a guard that strips a variable per call works precisely _because_
+the variable may be present in the environment, so a check asserting that variable is absent
+fails on a machine where everything is fine. Adoption is thinnest exactly where callers had
+already solved their own half — which argues for covering the half nobody can hand-roll
+cheaply, not for competing over the half already solved.
+
+**Consequences:** a proposal to replace a project's own guard with a manifest is refused, and a
+manifest is offered beside the guard instead, covering the harness surface the guard depends
+on. New probe types are judged by one question: could the caller plausibly have written this
+check inside its own process? Where it could, the check belongs there. Where it could not —
+the harness's merged settings, what the harness reports about itself, the schema of what it
+wrote — it belongs here. The boundary in AGENTS.md ("never a fixer, never a daemon") gains a
+third clause: never a substitute for enforcement at the call site.
