@@ -2,12 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import {
-  checkPath,
-  envNames,
-  evaluateEnv,
-  safeToShow,
-} from "../src/environment.js";
+import { checkPath, envNames, evaluateEnv } from "../src/environment.js";
+import { safeToShow } from "../src/values.js";
 
 let dir: string;
 beforeAll(() => {

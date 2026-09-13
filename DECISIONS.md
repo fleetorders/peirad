@@ -188,7 +188,7 @@ decision; the loader's shape check and the `n/a` rendering cover the crash.
 
 ### D-009 — Profile inapplicability follows the file shape, not the harness name
 
-**Scope:** repo · **Decided:** 2026-09-11 · **Supersedes** the codex consequence of D-005
+**Scope:** repo · **Decided:** 2026-09-11 · **Supersedes:** the codex consequence of D-005
 
 D-005 declared `config-key` and `hook-registered` inapplicable under the codex
 profile because that CLI's config was TOML with no JSON hooks. Codex now keeps
@@ -238,7 +238,7 @@ review itself and is removed unless the review keeps it (D-012).
 
 ### D-011 — A triggered check tracks the newest release, and the verdict names the checker
 
-**Scope:** repo · **Decided:** 2026-09-11
+**Scope:** repo · **Decided:** 2026-09-11 · **Superseded by:** D-013 (the version source)
 
 A wiring that fires the checker on a trigger resolves the newest published
 version at run time rather than carrying a pinned one, and remembers the last
@@ -497,7 +497,7 @@ harness runs is the fix, as for every other probe.
 
 ### D-020 — The live turn copies nothing into its isolated directory, and refuses before spending when it finds no login there
 
-**Scope:** repo · **Decided:** 2026-09-11
+**Scope:** repo · **Decided:** 2026-09-11 · **Superseded by:** D-024 (the isolated directory and the login consequence)
 
 `--live` drives the harness through one headless turn in a fresh temporary
 configuration directory, removed afterwards. The fixture hooks it registers are

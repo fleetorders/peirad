@@ -472,9 +472,10 @@ describe("config-key: expected values", () => {
     fs.writeFileSync(
       cfg,
       JSON.stringify({
-        voice: { enabled: true, enable: false },
+        voice: { enabled: true, enable: false, greeting: "hello there" },
         permissions: { defaultMode: "acceptEdits", allow: ["Bash", "Read"] },
         limits: { maxTokens: 4096 },
+        legacy: { apiToken: "tok" },
       }),
     );
   });
@@ -560,6 +561,39 @@ describe("config-key: expected values", () => {
     );
     expect(r.status).toBe("blocked");
   });
+
+  it("reports a mismatch on a credential-shaped key without either value", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "legacy.apiToken": "other" },
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain(
+      "legacy.apiToken holds a different value than declared (not shown)",
+    );
+    expect(r.detail).not.toContain('"tok"');
+    expect(r.detail).not.toContain('"other"');
+  });
+
+  it("does not echo a declared value for a missing credential-shaped key", () => {
+    const r = runProbe(
+      {
+        type: "config-key",
+        file: "values.json",
+        expect: { "legacy.sessionKey": "abc" },
+      },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("legacy.sessionKey is absent");
+    expect(r.detail).not.toContain('"abc"');
+  });
 });
 
 describe("config-key: names that must be absent", () => {
@@ -606,6 +640,28 @@ describe("config-key: names that must be absent", () => {
     const r = runProbe({ type: "config-key", file: "values.json" }, ctx(), []);
     expect(r.status).toBe("n/a");
     expect(r.detail).toContain("nothing declared");
+  });
+
+  it("names a leftover key that looks like a credential without its value", () => {
+    const r = runProbe(
+      { type: "config-key", file: "values.json", absent: ["legacy.apiToken"] },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("legacy.apiToken = value not shown");
+    expect(r.detail).not.toContain('"tok"');
+  });
+
+  it("names a leftover key whose value is not short and plain without echoing it", () => {
+    const r = runProbe(
+      { type: "config-key", file: "values.json", absent: ["voice.greeting"] },
+      ctx(),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain("voice.greeting = value not shown");
+    expect(r.detail).not.toContain("hello there");
   });
 });
 

@@ -24,7 +24,7 @@ import {
   type HarnessProfile,
   type SettingsLayer,
 } from "./harness-profiles.js";
-import { deepEqual, fold, getDotted, show } from "./values.js";
+import { deepEqual, fold, getDotted, safeToShow, show } from "./values.js";
 import {
   describeEntry,
   describeMiss,
@@ -475,15 +475,26 @@ function runKnownProbe(
         }
       }
 
+      // A value read from the settings is a secret until shown otherwise —
+      // the env probe's rule: a verdict line lands in CI logs, and a leftover
+      // key that happens to hold a token is named without being echoed.
       const expected = Object.entries(spec.expect ?? {});
       if (expected.length > 0) {
         const wrong: string[] = [];
         for (const [key, want] of expected) {
           const got = getDotted(parsed, key);
           if (got === undefined) {
-            wrong.push(`${key} is absent (expected ${show(want)})`);
+            wrong.push(
+              safeToShow(key, want)
+                ? `${key} is absent (expected ${show(want)})`
+                : `${key} is absent`,
+            );
           } else if (!deepEqual(got, want)) {
-            wrong.push(`${key} is ${show(got)} (expected ${show(want)})`);
+            wrong.push(
+              safeToShow(key, got) && safeToShow(key, want)
+                ? `${key} is ${show(got)} (expected ${show(want)})`
+                : `${key} holds a different value than declared (not shown)`,
+            );
           }
         }
         if (wrong.length === 0) {
@@ -507,7 +518,13 @@ function runKnownProbe(
           // setting looks configured while the feature runs at its default.
           problems.push(
             `declared absent but present: ${leftover
-              .map((k) => `${k}${at(k)} = ${show(getDotted(parsed, k))}`)
+              .map((k) => {
+                const value = getDotted(parsed, k);
+                const shown = safeToShow(k, value)
+                  ? show(value)
+                  : "value not shown";
+                return `${k}${at(k)} = ${shown}`;
+              })
               .join(", ")}`,
           );
         }

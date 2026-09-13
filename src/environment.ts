@@ -17,7 +17,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { show } from "./values.js";
+import { looksLikeCredential, safeToShow, show } from "./values.js";
 
 /** What a variable holding a path must point at. `path` accepts anything
  * that exists. A bare `executable` name is looked up on PATH. */
@@ -39,19 +39,8 @@ export interface EnvAssertions {
 
 export type EnvSource = Record<string, string | undefined>;
 
-// A name that looks like it holds a credential never has its value printed,
-// whatever the value looks like.
-const SECRET_NAME =
-  /KEY|TOKEN|SECRET|PASS|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|SIGNATURE/i;
-// A value short and plain enough to be a setting rather than a secret.
-const PLAIN_VALUE = /^[\w.:@/+-]{1,80}$/;
 // A value that reads as a filesystem path, for the one line that needs it.
 const PATHLIKE = /^[^\s]{1,240}$/;
-
-/** Whether a variable's value may appear in a verdict line. */
-export function safeToShow(name: string, value: string): boolean {
-  return !SECRET_NAME.test(name) && PLAIN_VALUE.test(value);
-}
 
 const isSet = (v: string | undefined): v is string =>
   v !== undefined && v !== "";
@@ -228,7 +217,7 @@ export function evaluateEnv(
         // The one place a value is worth printing: "points at X, which does
         // not exist" is the whole finding. Still never for a credential name.
         const shown =
-          !SECRET_NAME.test(name) && PATHLIKE.test(got)
+          !looksLikeCredential(name) && PATHLIKE.test(got)
             ? ` ${show(got, 120)}`
             : " (value not shown)";
         wrong.push(`${name}${from(name)} ${r.why}:${shown}`);

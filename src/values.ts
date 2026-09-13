@@ -58,6 +58,29 @@ export function show(value: unknown, maxChars = 60): string {
   return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
 }
 
+// A key that looks like it holds a credential never has its value printed,
+// whatever the value looks like.
+const SECRET_NAME =
+  /KEY|TOKEN|SECRET|PASS|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|SIGNATURE/i;
+// A value short and plain enough to be a setting rather than a secret.
+const PLAIN_VALUE = /^[\w.:@/+-]{1,80}$/;
+
+/** Whether a name looks like it holds a credential — the name test behind
+ * every rule that prints a value from the user's configuration. */
+export function looksLikeCredential(name: string): boolean {
+  return SECRET_NAME.test(name);
+}
+
+/** Whether a value read from the user's own configuration may appear in a
+ * verdict line: the name must not look like a credential, and the value must
+ * be short and plain. A string is tested as it stands; anything else as it
+ * renders. One rule for settings values and env values alike — a verdict line
+ * lands in CI logs either way. */
+export function safeToShow(name: string, value: unknown): boolean {
+  const text = typeof value === "string" ? value : show(value);
+  return !looksLikeCredential(name) && PLAIN_VALUE.test(text);
+}
+
 /** Fold raw process output into one reportable line: leading non-empty lines,
  * joined with " · ", capped so a chatty finding can't wreck the render. */
 export function fold(out: string, maxLines = 3, maxChars = 300): string {
