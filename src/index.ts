@@ -41,8 +41,8 @@ export type {
   ReportRead,
   ReportRecord,
 } from "./reports.js";
-export { deepEqual, fold, getDotted, show } from "./values.js";
-export { checkPath, envNames, evaluateEnv, safeToShow } from "./environment.js";
+export { deepEqual, fold, getDotted, safeToShow, show } from "./values.js";
+export { checkPath, envNames, evaluateEnv } from "./environment.js";
 export type {
   EnvAssertions,
   EnvEvaluation,

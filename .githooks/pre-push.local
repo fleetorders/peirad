@@ -24,7 +24,9 @@ echo "› npm test (git environment scrubbed)"
 env $(env | grep -o '^GIT_[A-Za-z0-9_]*' | sed 's/^/-u /') npm test || exit 1
 
 # Machine-local companion checks, when this machine has any. The companion is never tracked and
-# never named here, so a contributor without one pushes exactly as before.
+# never named here, so a contributor without one pushes exactly as before. Executing it is a
+# trust grant by design: code no repository state can show gates every push on this machine,
+# unaudited by this repo — stated here so the grant stays visible where it operates.
 if [ -x local/hooks/pre-push ]; then
   local/hooks/pre-push || exit 1
 fi

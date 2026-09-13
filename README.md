@@ -26,7 +26,7 @@ checked.
 ```
 $ npx peirad --manifest peirad.json
 
-my integration — harness claude (claude) 2.1.223 · peirad 0.5.0 · 2026-08-15
+my integration — harness claude 2.1.223 · peirad 0.5.0 · 2026-08-15
   ok    command-exists(claude): claude is on PATH
   ok    version: 2.1.223
   ok    flag-accepted(-p,--allowedTools): all flags present in --help
@@ -105,6 +105,12 @@ Every declaration is reported, so a wrong value never hides a leftover key:
 ```
 DEGR  config-key(settings.json): voice.enabled is false (expected true) · declared absent but present: voice.enable = true
 ```
+
+Settings values follow the env probe's rule: a value appears in a verdict line
+only when its key does not look like a credential and the value is short and
+plain — a leftover key that happens to hold a token is named without being
+echoed (`legacy.apiToken = value not shown`), and a mismatch on such a key
+reports that it holds a different value without printing either side.
 
 A feature that shells out to another program declares it, so "installed, but
 its helper is gone" stops reading as healthy:
@@ -446,7 +452,7 @@ git add peirad.baseline.json      # commit it: movement then shows up as a diff
 
 ```
 $ npx peirad
-my integration — harness claude (claude) 2.1.268 · peirad 0.5.0 · 2026-09-11
+my integration — harness claude 2.1.268 · peirad 0.5.0 · 2026-09-11
   ok    flag-accepted(-p): all flags present in --help
   ok    config-key(settings.json): values match: voice.enabled
   moved since the baseline of 2026-09-01 — undeclared, not counted as drift:
