@@ -6,4 +6,4 @@ dist/
 .etymd/cache/
 
 # local-only tooling: never tracked, never published
-local/
+/local/

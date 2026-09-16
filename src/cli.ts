@@ -31,8 +31,12 @@ function render(v: Verdict): void {
         : s === "n/a"
           ? pc.dim("n/a ")
           : pc.red("BLOCK");
+  // The profile is named beside the harness only when the two differ: for a
+  // manifest whose harness string is the profile, "claude (claude)" reads as
+  // a rendering bug rather than as harness (profile).
+  const profile = v.profile === v.harness ? "" : ` (${v.profile})`;
   process.stdout.write(
-    `${pc.bold(v.name)} — harness ${v.harness} (${v.profile}) ${pc.dim(v.version)} · ${pc.dim(`peirad ${v.checker}`)} · ${v.date}\n`,
+    `${pc.bold(v.name)} — harness ${v.harness}${profile} ${pc.dim(v.version)} · ${pc.dim(`peirad ${v.checker}`)} · ${v.date}\n`,
   );
   for (const r of v.results) {
     process.stdout.write(`  ${mark(r.status)}  ${r.probe}: ${r.detail}\n`);
