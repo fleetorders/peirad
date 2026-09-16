@@ -34,6 +34,13 @@ describe("what a verdict may print", () => {
     expect(safeToShow("MODE", "x".repeat(81))).toBe(false);
     expect(safeToShow("MODE", "has spaces in it")).toBe(false);
   });
+  it("never shows a URL with a userinfo part, however plain it looks", () => {
+    expect(
+      safeToShow("HTTP_PROXY", "http://user:password@proxy.internal:8080"),
+    ).toBe(false);
+    expect(safeToShow("ALL_PROXY", "http://token@proxy.internal")).toBe(false);
+    expect(safeToShow("HTTP_PROXY", "http://proxy.internal:8080")).toBe(true);
+  });
 });
 
 describe("checking a path value", () => {
@@ -110,9 +117,13 @@ describe("evaluating an environment contract", () => {
       {
         set: ["MISSING"],
         unset: ["SERVICE_API_KEY"],
-        equals: { MODE: "strict", SERVICE_TOKEN: "expected-token" },
+        equals: {
+          MODE: "strict",
+          SERVICE_TOKEN: "expected-token",
+          HTTP_PROXY: "http://proxy.internal:8080",
+        },
         matches: { URL: "^https://" },
-        pointsAt: { CA_BUNDLE: "file", SECRET_PATH: "file" },
+        pointsAt: { CA_BUNDLE: "file", SECRET_PATH: "file", ALL_PROXY: "file" },
       },
       {
         SERVICE_API_KEY: "sk-live-should-never-print",
@@ -121,8 +132,13 @@ describe("evaluating an environment contract", () => {
         URL: "http://plain.example.com",
         CA_BUNDLE: "/definitely/not/here.pem",
         SECRET_PATH: "/also/not/here",
+        HTTP_PROXY: "http://user:password@proxy.internal:8080",
+        ALL_PROXY: "http://user:password@nowhere.internal",
       },
-      base,
+      // baseDir given here, not the describe-level `base`: that object is
+      // built before beforeAll runs, and a relative value would resolve
+      // against undefined.
+      { baseDir: dir },
     );
     const text = r.problems.join(" | ");
     expect(r.problems).toContain("not set: MISSING");
@@ -131,6 +147,9 @@ describe("evaluating an environment contract", () => {
     expect(r.problems).toContain(
       "SERVICE_TOKEN holds a different value than declared (not shown)",
     );
+    expect(r.problems).toContain(
+      "HTTP_PROXY holds a different value than declared (not shown)",
+    );
     expect(r.problems).toContain("URL does not match /^https:///");
     expect(r.problems).toContain(
       'CA_BUNDLE does not exist: "/definitely/not/here.pem"',
@@ -138,8 +157,10 @@ describe("evaluating an environment contract", () => {
     expect(r.problems).toContain(
       "SECRET_PATH does not exist: (value not shown)",
     );
+    expect(r.problems).toContain("ALL_PROXY does not exist: (value not shown)");
     expect(text).not.toContain("should-never-print");
     expect(text).not.toContain("/also/not/here");
+    expect(text).not.toContain("user:password");
   });
 
   it("names where a value came from when the caller knows", () => {

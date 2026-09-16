@@ -2,7 +2,13 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { runProbe, type ProbeContext } from "../src/probes.js";
+import {
+  newestMatch,
+  resolveBinary,
+  runProbe,
+  type ProbeContext,
+} from "../src/probes.js";
+import { expandGlob } from "../src/glob.js";
 import {
   loadManifest,
   type Manifest,
@@ -177,6 +183,85 @@ describe("transcript-field", () => {
     expect(r.status).toBe("degraded");
     expect(r.detail).toContain("z-second.jsonl");
     expect(r.detail).toContain("2026-06-01");
+  });
+});
+
+// Every wildcard shape a glob may use, against one tree: a stray file one
+// level too shallow, the intended file one level deeper, and a top-level
+// file. A `*` in a middle segment must match exactly that segment — matching
+// the stray instead would assert fields against the wrong file entirely.
+describe("glob shapes", () => {
+  let tree: string;
+  const OLD = new Date("2026-01-01T00:00:00Z");
+  const NEW = new Date("2026-06-01T00:00:00Z");
+  const found = (pattern: string): string | null => {
+    const m = newestMatch(tree, pattern);
+    return m ? path.relative(tree, m.file).split(path.sep).join("/") : null;
+  };
+
+  beforeAll(() => {
+    tree = fs.mkdtempSync(path.join(os.tmpdir(), "peirad-glob-"));
+    fs.mkdirSync(path.join(tree, "a", "sub"), { recursive: true });
+    for (const rel of ["top.jsonl", "a/stray.jsonl", "a/sub/b.jsonl"]) {
+      fs.writeFileSync(path.join(tree, ...rel.split("/")), "{}\n");
+      fs.utimesSync(
+        path.join(tree, ...rel.split("/")),
+        rel === "a/sub/b.jsonl" ? NEW : OLD,
+        rel === "a/sub/b.jsonl" ? NEW : OLD,
+      );
+    }
+  });
+  afterAll(() => fs.rmSync(tree, { recursive: true, force: true }));
+
+  it("*.jsonl matches the top level only", () => {
+    expect(found("*.jsonl")).toBe("top.jsonl");
+  });
+
+  it("a/*/b.jsonl matches one level deep, never the stray beside it", () => {
+    expect(found("a/*/b.jsonl")).toBe("a/sub/b.jsonl");
+  });
+
+  it("a/*.jsonl matches one level deep, never the file below it", () => {
+    expect(found("a/*.jsonl")).toBe("a/stray.jsonl");
+  });
+
+  it("a/*/*.jsonl needs two segments after a", () => {
+    expect(found("a/*/*.jsonl")).toBe("a/sub/b.jsonl");
+  });
+
+  it("a/**/*.jsonl crosses any depth, sampling the newest", () => {
+    expect(found("a/**/*.jsonl")).toBe("a/sub/b.jsonl");
+  });
+
+  it("returns null when the middle segment has no match", () => {
+    expect(found("a/*/c.jsonl")).toBeNull();
+  });
+
+  it("expands {home} and {configDir} templates, and walks an absolute glob", () => {
+    // Synthetic roots, so no test names a real directory layout.
+    expect(
+      expandGlob("{home}/.claude/projects/**/*.jsonl", {
+        home: "/h",
+        configDir: "/p",
+      }),
+    ).toBe("/h/.claude/projects/**/*.jsonl");
+    expect(
+      expandGlob("{configDir}/a/*.jsonl", {
+        home: "/h",
+        configDir: "/p",
+      }),
+    ).toBe("/p/a/*.jsonl");
+    // An absolute pattern — with or without a template behind it — matches the
+    // whole path from the filesystem root.
+    const abs = newestMatch(tree, path.join(tree, "a", "**", "*.jsonl"));
+    expect(abs).not.toBeNull();
+    expect(path.relative(tree, abs!.file)).toBe(
+      path.join("a", "sub", "b.jsonl"),
+    );
+    const templated = newestMatch(tree, "{configDir}/a/sub/*.jsonl");
+    expect(path.relative(tree, templated!.file)).toBe(
+      path.join("a", "sub", "b.jsonl"),
+    );
   });
 });
 
@@ -630,6 +715,40 @@ describe("command-exists: helper programs", () => {
     const r = runProbe({ type: "command-exists" }, ctx(), []);
     expect(r.probe).toBe("command-exists(true)");
     expect(r.status).toBe("pass");
+  });
+
+  // A manifest is trusted local input, but a harness string that names no
+  // executable must never read as installed — and must never be evaluated as
+  // command syntax on the way to finding out.
+  it("reports drift for shell metacharacters in a harness name, and runs nothing", () => {
+    const r = runProbe(
+      { type: "command-exists", critical: true },
+      { harness: "true; echo PEIRAD_INJECTION_MARKER", configDir: dir },
+      [],
+    );
+    expect(r.status).toBe("blocked");
+    expect(r.detail).toContain("not found on PATH");
+    // Under the old shell lookup this string "resolved" to the injected
+    // command's own output; resolveBinary must return null for it instead.
+    expect(resolveBinary("true; echo PEIRAD_INJECTION_MARKER")).toBeNull();
+  });
+});
+
+describe("resolveBinary", () => {
+  it("resolves a bare name along PATH, without a shell", () => {
+    const p = resolveBinary("sh");
+    expect(p).not.toBeNull();
+    expect(path.isAbsolute(p!)).toBe(true);
+    expect(resolveBinary("peirad-no-such-harness")).toBeNull();
+  });
+
+  it("resolves an absolute path directly", () => {
+    expect(resolveBinary(process.execPath)).toBe(process.execPath);
+  });
+
+  it("never evaluates the harness string as command syntax", () => {
+    expect(resolveBinary("true; echo PEIRAD_INJECTION_MARKER")).toBeNull();
+    expect(resolveBinary("$(touch pwned)")).toBeNull();
   });
 });
 

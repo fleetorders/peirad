@@ -12,6 +12,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   unknownProbeFields,
@@ -19,6 +20,7 @@ import {
   type SettingsScope,
 } from "./manifest.js";
 import {
+  harnessConfigDir,
   resolveProfile,
   type ArrayMerge,
   type HarnessProfile,
@@ -32,7 +34,13 @@ import {
   readReport,
   type HarnessReport,
 } from "./reports.js";
-import { envNames, evaluateEnv, type EnvSource } from "./environment.js";
+import {
+  envNames,
+  evaluateEnv,
+  findExecutable,
+  type EnvSource,
+} from "./environment.js";
+import { expandGlob, listMatches } from "./glob.js";
 import {
   describeLayers,
   effectiveSettings,
@@ -125,56 +133,36 @@ export function helpTokens(harness: string, helpArgs: string[]): Set<string> {
   return new Set(out.split(/[\s,=\[\]<>|()]+/).filter((t) => t.length > 0));
 }
 
-/** `command -v <harness>`: the resolved binary path, or null when off PATH. */
+/** The harness binary's own path, or null when there is none: a bare name is
+ * searched along PATH, a path is resolved and checked directly. Never through
+ * a shell — a manifest's `harness` string is only ever a file name to find,
+ * never command syntax to run, so a nonsense string reads as not-installed
+ * (drift) instead of executing and passing. */
 export function resolveBinary(harness: string): string | null {
-  const r = spawnSync("command", ["-v", harness], {
-    shell: true,
-    encoding: "utf8",
+  return findExecutable(harness, {
+    baseDir: process.cwd(),
+    searchPath: process.env.PATH,
   });
-  if (r.status !== 0) return null;
-  const p = (r.stdout ?? "").trim();
-  return p.length > 0 ? p : null;
-}
-
-// Minimal glob: supports "dir/**/*.ext" (recursive) and "dir/*.ext" (one
-// level); returns EVERY match so the caller samples by recency, not by the
-// order a directory listing happened to surface.
-function allMatches(base: string, pattern: string): string[] {
-  const recursive = pattern.includes("**");
-  const ext = path.extname(pattern);
-  const root = path.join(base, pattern.split("*")[0]!.replace(/\/$/, ""));
-  const found: string[] = [];
-  const walk = (dir: string): void => {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (e.isFile() && (!ext || e.name.endsWith(ext))) {
-        found.push(path.join(dir, e.name));
-      }
-    }
-    if (recursive) {
-      for (const e of entries) {
-        if (e.isDirectory()) walk(path.join(dir, e.name));
-      }
-    }
-  };
-  walk(root);
-  return found;
 }
 
 /** The match with the newest mtime: the transcript the current build wrote,
  * not whichever file sorts first. Ties keep the first-listed (name order)
- * file, so the pick stays deterministic. */
+ * file, so the pick stays deterministic. A `{home}`/`{configDir}` template in
+ * the pattern expands here, so a glob can point where the harness keeps its
+ * transcripts without dragging every other probe's base directory along. */
 export function newestMatch(
   base: string,
   pattern: string,
 ): { file: string; mtime: Date } | null {
+  const expanded = expandGlob(pattern, {
+    home: os.homedir(),
+    configDir: path.resolve(base),
+  });
+  const searchBase = path.isAbsolute(expanded)
+    ? path.parse(expanded).root
+    : base;
   let best: { file: string; mtime: Date } | null = null;
-  for (const file of allMatches(base, pattern)) {
+  for (const file of listMatches(searchBase, expanded)) {
     let mtime: Date;
     try {
       mtime = fs.statSync(file).mtime;
@@ -210,7 +198,16 @@ export function readSettings(
         detail: `harness profile "${profile.name}" declares no settings stack — name a file instead of scope "effective"`,
       };
     }
-    const layers = loadLayers(declared, layerVars(ctx.configDir));
+    const vars = layerVars(ctx.configDir);
+    // The stack is read where the harness itself reads it: a layer beneath
+    // the harness's configuration directory follows the variable that
+    // relocates it, exactly as the live run does, so an effective read can
+    // never report a passing setting from a configuration the harness never
+    // loads.
+    if (profile.live) {
+      vars.userConfigDir = harnessConfigDir(profile.live, process.env);
+    }
+    const layers = loadLayers(declared, vars);
     const broken = layers.filter((l) => l.state === "unreadable");
     if (broken.length > 0) {
       // The effective settings are unknowable while a layer will not parse,

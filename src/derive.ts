@@ -22,11 +22,14 @@ import type { Manifest, ProbeSpec } from "./manifest.js";
 const HARNESSES = ["claude", "codex"] as const;
 type Harness = (typeof HARNESSES)[number];
 
-/** Where each harness's transcripts live, relative to its configuration
- * directory — used only to give a drafted transcript probe a sensible glob. */
+/** Where each harness's transcripts live. The glob points into the harness's
+ * own configuration directory with a `{home}` template, so a drafted
+ * manifest works from the project directory its hooks live in — a relative
+ * glob would need a base dir that finds either the hooks or the transcripts,
+ * never both. */
 const TRANSCRIPT_GLOB: Record<Harness, string> = {
-  claude: "projects/**/*.jsonl",
-  codex: "sessions/**/*.jsonl",
+  claude: "{home}/.claude/projects/**/*.jsonl",
+  codex: "{home}/.codex/sessions/**/*.jsonl",
 };
 
 /** Directories that hold someone else's code or build output. */
@@ -366,7 +369,7 @@ export function draftManifest(
       fields: fields.map(([f]) => f),
       _from: Object.fromEntries(fields),
       _note:
-        "fields read by code that mentions .jsonl — keep the ones that come from transcripts; the glob resolves against --config-dir, the harness's configuration directory",
+        "fields read by code that mentions .jsonl — keep the ones that come from transcripts; the glob points into the harness's configuration directory ({home} expands at run time)",
     });
   }
   return { name: `${name} (draft)`, harness, probes };

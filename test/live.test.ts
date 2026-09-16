@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -39,7 +39,7 @@ events.push("Stop");
 for (const e of events) if (!skip.includes(e)) fire(e);
 const sid = process.env.FAKE_SESSION_ID || "11111111-2222-3333-4444-555555555555";
 if (process.env.FAKE_NO_TRANSCRIPT !== "1") {
-  const folder = path.join(home, "projects", process.cwd().replace(/[^A-Za-z0-9]/g, "-"));
+  const folder = path.join(home, "projects", process.env.FAKE_PROJECT_NAME || process.cwd().replace(/[^A-Za-z0-9]/g, "-"));
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(path.join(folder, sid + ".jsonl"), JSON.stringify({ type: "user", message: { role: "user" }, sessionId: sid }) + "\\n");
   if (process.env.FAKE_EXTRA_FILE === "1") fs.writeFileSync(path.join(folder, "memory.md"), "kept");
@@ -267,6 +267,39 @@ describe("the live turn on the harness's own configuration", () => {
     fs.rmSync(path.join(home, "projects"), { recursive: true, force: true });
   });
 
+  it("never removes a conversation that existed before the turn (a resumed session)", () => {
+    const sid = "33333333-4444-5555-6666-777777777777";
+    // The session's transcript is already there when the turn begins — as it
+    // is when a manifest's promptArgs resume an existing conversation. The
+    // turn rewrites that same file, so freshness alone cannot tell a session
+    // this invocation created from one it merely continued.
+    const folder = path.join(home, "projects", "resumed");
+    fs.mkdirSync(folder, { recursive: true });
+    const file = path.join(folder, `${sid}.jsonl`);
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ type: "user", sessionId: sid }) + "\n",
+    );
+    const old = new Date("2026-01-01T00:00:00Z");
+    fs.utimesSync(file, old, old);
+    try {
+      const r = live(
+        run({
+          FAKE_LOGGED_IN: "1",
+          FAKE_SESSION_ID: sid,
+          FAKE_PROJECT_NAME: "resumed",
+        }),
+      );
+      expect(r["live:cleanup"]!.status).toBe("n/a");
+      expect(r["live:cleanup"]!.detail).toContain(
+        "already existed when the turn began",
+      );
+      expect(fs.existsSync(file)).toBe(true);
+    } finally {
+      fs.rmSync(path.join(home, "projects"), { recursive: true, force: true });
+    }
+  });
+
   it("reports a declared hook that did not fire, in the register of its probe", () => {
     const v = run({ FAKE_LOGGED_IN: "1", FAKE_SKIP_EVENTS: "PreToolUse" });
     expect(live(v)["live:hook-fired(PreToolUse)"]!.status).toBe("blocked");
@@ -333,6 +366,58 @@ describe("the live turn on the harness's own configuration", () => {
       ],
     } as Manifest);
     expect(log()[0]!.args as string[]).not.toContain("--tools");
+  });
+
+  it("resolves a relative harness path before changing directories", () => {
+    // The live run works from a temporary directory; a harness named relative
+    // to where peirad was started must be made absolute first, or the login
+    // check dies of ENOENT and reports a harness that is signed in as not.
+    const rel = path.relative(process.cwd(), claude);
+    fs.rmSync(turnLog, { force: true });
+    const outcome = runLive(
+      claudeManifest(),
+      { harness: rel, configDir: dir },
+      resolveProfile("claude"),
+      {
+        ceiling: 100_000,
+        timeoutMs: 20_000,
+        env: {
+          ...process.env,
+          FAKE_TURN_LOG: turnLog,
+          CLAUDE_CONFIG_DIR: home,
+          FAKE_LOGGED_IN: "1",
+        },
+      },
+    );
+    const r = Object.fromEntries(
+      outcome.results
+        .filter((x) => x.probe.startsWith("live"))
+        .map((x) => [x.probe, x]),
+    );
+    expect(r["live:login"]!.status).toBe("pass");
+    expect(r["live:turn"]!.status).toBe("pass");
+    fs.rmSync(path.join(home, "projects"), { recursive: true, force: true });
+  });
+
+  it("reports an event no scenario can trigger as unchecked, not drift", () => {
+    // PreCompact fires on an action the fixture never requests, so a fixture
+    // hook on it not running says nothing about the integration; Stop fires
+    // on every plain turn, so its hook not running still reads as drift.
+    const v = run({ FAKE_LOGGED_IN: "1" }, {
+      harness: claude,
+      harnessProfile: "claude",
+      probes: [
+        { type: "hook-registered", event: "PreCompact", match: "x" },
+        { type: "hook-registered", event: "Stop", match: "x", critical: true },
+      ],
+    } as Manifest);
+    const r = live(v);
+    expect(r["live:hook-fired(PreCompact)"]!.status).toBe("n/a");
+    expect(r["live:hook-fired(PreCompact)"]!.detail).toContain(
+      "no scenario this run drives",
+    );
+    expect(r["live:hook-fired(Stop)"]!.status).toBe("pass");
+    expect(v.results.some((x) => x.status === "blocked")).toBe(false);
   });
 });
 
@@ -489,5 +574,76 @@ describe("pieces of the live run", () => {
     });
     expect(v.results.some((r) => r.probe.startsWith("live"))).toBe(false);
     expect(v.live).toBeUndefined();
+  });
+
+  it("skips a transcript that vanished between listing and stat", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "peirad-find-"));
+    try {
+      const day = path.join(base, "sessions", "2026", "09", "11");
+      fs.mkdirSync(day, { recursive: true });
+      // Both files match the pattern for the same session; the first is made
+      // to vanish at the stat, as a concurrent writer rotating files can do.
+      const gone = path.join(day, "rollout-a-22222222-bbbb.jsonl");
+      const there = path.join(day, "rollout-b-22222222-bbbb.jsonl");
+      fs.writeFileSync(gone, "{}");
+      fs.writeFileSync(there, "{}");
+      const real = fs.statSync;
+      const spy = vi.spyOn(fs, "statSync").mockImplementation(((
+        p: unknown,
+        o: unknown,
+      ) =>
+        p === gone
+          ? (() => {
+              throw new Error("ENOENT: vanished");
+            })()
+          : (real as (a: unknown, b: unknown) => ReturnType<typeof real>)(
+              p,
+              o,
+            )) as unknown as typeof fs.statSync);
+      try {
+        const found = findSessionTranscript(
+          base,
+          "sessions/**/rollout-*-{session}.jsonl",
+          "22222222-bbbb",
+          Date.now() - 60_000,
+        );
+        expect(path.basename(found!.file)).toBe(
+          "rollout-b-22222222-bbbb.jsonl",
+        );
+      } finally {
+        spy.mockRestore();
+      }
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps every deterministic result when the live step itself fails", () => {
+    const plain = runManifest(claudeManifest(), {
+      configDir: dir,
+      date: "2026-09-11",
+    });
+    const spy = vi.spyOn(fs, "mkdtempSync").mockImplementation(() => {
+      throw new Error("ENOENT: no such file or directory, mkdtemp");
+    });
+    try {
+      const v = run({ FAKE_LOGGED_IN: "1" });
+      const strip = (x: typeof v): typeof v.results =>
+        x.results.filter((r) => !r.probe.startsWith("live"));
+      // The same deterministic verdict the run delivers without --live, plus
+      // one n/a line for the live step — never a lost verdict (D-008).
+      expect(strip(v)).toEqual(strip(plain));
+      expect(v.results.filter((r) => r.probe.startsWith("live"))).toEqual([
+        {
+          probe: "live",
+          status: "n/a",
+          detail: expect.stringContaining("could not complete"),
+        },
+      ]);
+      expect(v.live).toEqual({ turned: false, tokens: null });
+      expect(v.ok).toBe(plain.ok);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

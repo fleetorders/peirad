@@ -143,6 +143,24 @@ describe("the baseline file", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toContain("record it again");
   });
+
+  it("refuses recorded lists that are not lists of names", () => {
+    const s = observeManifest(manifest(), { configDir: dir });
+    const b = makeBaseline(s, {
+      recorded: "2026-09-01",
+      checker: "0.0.0",
+      harness: "fake",
+    });
+    const broken = {
+      ...b,
+      settings: { "settings.json": true },
+    } as unknown as Baseline;
+    const file = path.join(dir, "broken.json");
+    fs.writeFileSync(file, formatBaseline(broken));
+    const read = readBaseline(file);
+    expect(read.ok).toBe(false);
+    if (!read.ok) expect(read.reason).toContain("settings(settings.json)");
+  });
 });
 
 describe("comparing against a baseline", () => {
@@ -163,6 +181,43 @@ describe("comparing against a baseline", () => {
     );
     expect(report.moved).toEqual([]);
     expect(report.untracked).toEqual([]);
+  });
+
+  it("a declaration in one source does not suppress movement in another", () => {
+    // Two settings sources; the manifest declares voice.enabled against the
+    // first only. When it vanishes from both, the ledger reports the second
+    // source's movement — the first is the probe's own finding, not the
+    // ledger's, but a declaration in a.json hides nothing in b.json.
+    write("a.json", { voice: { enabled: true, mode: "push" } });
+    write("b.json", { voice: { enabled: true, mode: "push" } });
+    const m: Manifest = {
+      harness,
+      probes: [
+        { type: "config-key", file: "a.json", keys: ["voice.enabled"] },
+        { type: "config-key", file: "b.json", keys: ["voice.mode"] },
+      ],
+    } as Manifest;
+    const before = observeManifest(m, { configDir: dir });
+    write("a.json", { voice: { mode: "push" } });
+    write("b.json", { voice: { mode: "push" } });
+    const report = compareSurface(
+      makeBaseline(before, {
+        recorded: "2026-09-01",
+        checker: "0.0.0",
+        harness: "fake",
+      }),
+      observeManifest(m, { configDir: dir }),
+      m,
+      "peirad.baseline.json",
+    );
+    expect(report.moved).toEqual([
+      {
+        surface: "settings",
+        where: "b.json",
+        change: "removed",
+        name: "voice.enabled",
+      },
+    ]);
   });
 
   it("reports an update's undeclared movement and leaves declared names to the probes", () => {
@@ -288,5 +343,39 @@ describe("the ledger step", () => {
       date: "2026-09-11",
     });
     expect(asked.notes.join(" ")).toContain("not found");
+  });
+
+  it("a malformed baseline costs a note, never the verdict", () => {
+    const m = manifest();
+    const v = runManifest(m, { configDir: dir, date: "2026-09-11" });
+    const bad = path.join(dir, "bad.baseline.json");
+    fs.writeFileSync(
+      bad,
+      JSON.stringify({
+        kind: "peirad-baseline",
+        format: 1,
+        recorded: "2026-09-01",
+        checker: "0.0.0",
+        harness: "fake",
+        harnessVersion: "1.0.0",
+        help: ["--print"],
+        settings: { "settings.json": true },
+        transcripts: {},
+      }),
+    );
+    const out = runLedger(m, v, {
+      configDir: dir,
+      file: bad,
+      label: "bad.baseline.json",
+      record: false,
+      explicit: true,
+      date: "2026-09-11",
+    });
+    expect(out.results).toEqual(v.results);
+    expect(out.ok).toBe(v.ok);
+    expect(out.baseline).toBeUndefined();
+    expect(out.notes.some((n) => n.startsWith("baseline not compared:"))).toBe(
+      true,
+    );
   });
 });

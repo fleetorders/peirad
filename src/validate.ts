@@ -509,6 +509,14 @@ export function validateManifestText(
         );
       }
     }
+    if (type === "transcript-field" && typeof probe.glob === "string") {
+      if (/[[\]{}?]/.test(probe.glob)) {
+        warn(
+          `${base}.glob`,
+          `"${probe.glob}" carries characters matched literally: only "*" (within one path segment) and "**" (across segments) are wildcards`,
+        );
+      }
+    }
     if (type === "flag-accepted" && Array.isArray(probe.flags)) {
       probe.flags.forEach((f, n) => {
         if (typeof f === "string" && !f.startsWith("-")) {

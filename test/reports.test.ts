@@ -140,6 +140,27 @@ describe("reading a report", () => {
     });
     expect(bad.ok).toBe(false);
   });
+
+  it("refuses array elements that are not records, instead of dropping them", () => {
+    // `["server-one"]` filtered to [] would read as a valid empty report — a
+    // readability-only probe would pass a schema it never read.
+    const strings = parseReport(
+      out(JSON.stringify(["server-one"])),
+      codex.mcp!,
+    );
+    expect(strings.ok).toBe(false);
+    if (!strings.ok) {
+      expect(strings.reason).toContain("1 of 1 entries are not objects");
+    }
+    const keyed = parseReport(
+      out(JSON.stringify({ checks: { a: { id: "a" }, b: "broken" } })),
+      codex.doctor!,
+    );
+    expect(keyed.ok).toBe(false);
+    if (!keyed.ok) {
+      expect(keyed.reason).toContain('1 of 2 entries at "checks"');
+    }
+  });
 });
 
 describe("matching declared facts", () => {
