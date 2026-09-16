@@ -430,3 +430,33 @@ could the caller plausibly have written this check inside its own process? Where
 check belongs there. Where it could not (the harness's merged settings, what the harness
 reports about itself, the schema of what it wrote) it belongs here. peirad is never a fixer,
 never a daemon, and never a substitute for enforcement at the call site.
+
+### D-026 — The array merge policy is per key with a default, not one rule per harness
+
+**Scope:** repo · **Decided:** 2026-09-16
+
+`settingsArrays` may be a map from dotted key path to merge rule, with a
+`default` entry for every path the map does not name; a single rule string
+remains and means the same as the map that carries it as its `default`. This
+supersedes the single-rule reading of `settingsArrays` in D-016 only — the
+stack as profile data, the precedence order and the layer rules of that
+decision stand unchanged.
+
+**Why:** D-016's own examples implied both behaviors in one harness: hook lists
+that accumulate across scopes, and arrays the nearest scope replaces. One rule
+per harness cannot express a harness that does both, so the effective-scope
+verdict was quietly wrong for one kind of key — the silent pass this tool
+exists to catch, produced by this tool. The rule belongs to the key, because
+the behavior belongs to the key: nothing about a harness's layer order predicts
+which of its lists join and which replace.
+
+**Consequences:** a map path matches exactly — `hooks.PreToolUse` names the
+list at that path, not everything under `hooks` — and `default` is reserved,
+so a settings key literally named `default` cannot be named in a map (no known
+harness has one at the top level). A map without a `default` still runs: its
+unnamed paths merge `concat`, the rule every single-string policy carried, and
+`validate` warns, because a rule the manifest implies but does not say is
+exactly the quiet default this tool asks manifests not to carry. Provenance
+resolves the same per-path rule the merge applied, so attribution never
+describes a join the merge did not make; a value that is neither rule nor map
+of rules is refused at load rather than read as a policy it is not.

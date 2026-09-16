@@ -117,7 +117,23 @@ at run time:
 where every layer's entries apply (a harness that runs every registered hook,
 whichever file declared it) or `override` where the nearest scope replaces the
 rest. It is the difference between "my hook moved scope" and "my hook is dead",
-so it is declared, never guessed.
+so it is declared, never guessed. A single string is the rule for every list;
+a harness that needs both at once writes a map — one rule per dotted key path,
+with a `default` for the paths it does not name:
+
+```json
+{
+  "settingsArrays": {
+    "default": "concat",
+    "hooks.PreToolUse": "override"
+  }
+}
+```
+
+A path matches exactly (`hooks.PreToolUse` names the list at that path, not
+everything under `hooks`), and a map that names no `default` merges its
+unnamed paths `concat` — `peirad validate` warns, because a rule the manifest
+implies but does not say is drift of its own.
 
 ## What the harness says about itself
 

@@ -22,7 +22,7 @@ import {
 import {
   harnessConfigDir,
   resolveProfile,
-  type ArrayMerge,
+  type ArrayMergePolicy,
   type HarnessProfile,
   type SettingsLayer,
 } from "./harness-profiles.js";
@@ -94,7 +94,7 @@ export interface ProbeContext {
    * see what the manifest asked for. */
   settingsLayers?: SettingsLayer[];
   /** How that stack combines list values; see `ProbeContext.settingsLayers`. */
-  settingsArrays?: ArrayMerge;
+  settingsArrays?: ArrayMergePolicy;
   /** The reports a `harness-reports` probe may name — the profile's, with the
    * manifest's own declarations folded in by the runner. */
   reports?: Record<string, HarnessReport>;

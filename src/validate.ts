@@ -295,6 +295,24 @@ const REPORT_FIELDS: Record<string, Check> = {
 
 const isComment = (k: string): boolean => k.startsWith("_");
 
+/** `settingsArrays`: one rule for every list, or a dotted key path → rule map
+ * with a `default` for the paths it does not name (D-026). */
+const mergePolicy: Check = (v) => {
+  if (typeof v === "string") {
+    return oneOf("concat", "override")(v) === null
+      ? null
+      : 'must be "concat", "override", or a map of dotted key paths to them';
+  }
+  if (!isObject(v))
+    return 'must be "concat", "override", or a map of dotted key paths to them';
+  for (const [k, x] of Object.entries(v)) {
+    if (typeof x !== "string" || oneOf("concat", "override")(x) !== null) {
+      return `"${k}" must be one of "concat", "override"`;
+    }
+  }
+  return null;
+};
+
 // ---------------------------------------------------------------------------
 
 export function validateManifestText(
@@ -345,7 +363,18 @@ export function validateManifestText(
   field("promptArgs", strings());
   field("outputArgs", strings());
   field("versionArgs", strings());
-  field("settingsArrays", oneOf("concat", "override"));
+  field("settingsArrays", mergePolicy);
+  // A map without a "default" still runs — unnamed paths merge "concat" — but
+  // an unspoken rule is exactly what this checker asks manifests not to carry.
+  if (
+    isObject(root.settingsArrays) &&
+    !Object.hasOwn(root.settingsArrays, "default")
+  ) {
+    warn(
+      "settingsArrays",
+      `"settingsArrays" names no "default" — every path it does not name merges "concat"; declare one to say so`,
+    );
+  }
   if (
     Array.isArray(root.promptArgs) &&
     root.promptArgs.every((a) => typeof a === "string") &&

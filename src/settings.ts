@@ -14,9 +14,30 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ArrayMerge, SettingsLayer } from "./harness-profiles.js";
+import type {
+  ArrayMerge,
+  ArrayMergePolicy,
+  SettingsLayer,
+} from "./harness-profiles.js";
 
-export type { ArrayMerge };
+export type { ArrayMerge, ArrayMergePolicy };
+
+/**
+ * The rule for the array at one dotted path: the map's exact entry for that
+ * path, else its `default`, else `concat` — the rule every blanket string
+ * already carried before maps existed. Paths match exactly: `hooks.PreToolUse`
+ * names the list at that path, not everything under `hooks`.
+ */
+export function arrayMergeAt(
+  policy: ArrayMergePolicy,
+  dottedPath: string,
+): ArrayMerge {
+  if (typeof policy === "string") return policy;
+  // hasOwn, not plain lookup: a settings path named "constructor" is data,
+  // not a prototype property to inherit a rule from.
+  if (Object.hasOwn(policy, dottedPath)) return policy[dottedPath]!;
+  return policy.default ?? "concat";
+}
 
 /** One layer after an attempt to read it. A layer that is not there is not an
  * error — most stacks are mostly empty — but it is reported, so "nowhere" and
@@ -104,32 +125,44 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 
 /** Merge two layers' values, `higher` winning. Objects merge key by key;
  * lists either join (a harness that runs every registered hook) or replace
- * (one where the nearest scope wins outright), as the profile declares. */
+ * (one where the nearest scope wins outright), per path as the profile
+ * declares — the root call; the recursion tracks where it is. */
 export function mergeValues(
   lower: unknown,
   higher: unknown,
-  arrays: ArrayMerge,
+  arrays: ArrayMergePolicy,
 ): unknown {
+  return mergeAt(lower, higher, arrays, "");
+}
+
+const mergeAt = (
+  lower: unknown,
+  higher: unknown,
+  arrays: ArrayMergePolicy,
+  at: string,
+): unknown => {
   if (higher === undefined) return lower;
   if (lower === undefined) return higher;
   if (Array.isArray(lower) && Array.isArray(higher)) {
-    return arrays === "concat" ? [...lower, ...higher] : higher;
+    return arrayMergeAt(arrays, at) === "concat"
+      ? [...lower, ...higher]
+      : higher;
   }
   if (isPlainObject(lower) && isPlainObject(higher)) {
     const out: Record<string, unknown> = { ...lower };
     for (const [k, v] of Object.entries(higher)) {
-      out[k] = mergeValues(out[k], v, arrays);
+      out[k] = mergeAt(out[k], v, arrays, at ? `${at}.${k}` : k);
     }
     return out;
   }
   return higher;
-}
+};
 
 /** The settings the harness actually acts on: every readable layer folded in
  * precedence order. */
 export function effectiveSettings(
   layers: readonly LoadedLayer[],
-  arrays: ArrayMerge,
+  arrays: ArrayMergePolicy,
 ): unknown {
   let merged: unknown = undefined;
   for (const layer of layers) {
@@ -153,15 +186,17 @@ export interface Provenance {
 export function provenance(
   layers: readonly LoadedLayer[],
   key: string,
-  arrays: ArrayMerge,
+  arrays: ArrayMergePolicy,
   getValue: (data: unknown, key: string) => unknown,
 ): Provenance {
   const setting = layers.filter(
     (l) => l.state === "read" && getValue(l.data, key) !== undefined,
   );
   if (setting.length === 0) return { from: [], shadowed: [] };
+  // The same per-path rule the merge applied, so attribution never describes
+  // a join the merge did not make.
   const joined =
-    arrays === "concat" &&
+    arrayMergeAt(arrays, key) === "concat" &&
     setting.every((l) => Array.isArray(getValue(l.data, key)));
   if (joined) return { from: setting.map((l) => l.name), shadowed: [] };
   const winner = setting[setting.length - 1]!;

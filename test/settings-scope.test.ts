@@ -5,8 +5,12 @@ import os from "node:os";
 import { runProbe, type ProbeContext } from "../src/probes.js";
 import { runManifest } from "../src/doctor.js";
 import type { Manifest } from "../src/manifest.js";
-import type { SettingsLayer } from "../src/harness-profiles.js";
+import type {
+  ArrayMergePolicy,
+  SettingsLayer,
+} from "../src/harness-profiles.js";
 import {
+  arrayMergeAt,
   mergeValues,
   provenance,
   loadLayers,
@@ -119,6 +123,64 @@ describe("merging a settings stack", () => {
       state: "absent",
       path: "{userConfigDir}/settings.json",
     });
+  });
+  it("applies a per-key map: the named path replaces, the rest join", () => {
+    expect(
+      mergeValues(
+        {
+          hooks: { PreToolUse: ["a"], PostToolUse: ["x"] },
+          other: ["m"],
+        },
+        {
+          hooks: { PreToolUse: ["b"], PostToolUse: ["y"] },
+          other: ["n"],
+        },
+        { default: "concat", "hooks.PreToolUse": "override" },
+      ),
+    ).toEqual({
+      hooks: { PreToolUse: ["b"], PostToolUse: ["x", "y"] },
+      other: ["m", "n"],
+    });
+  });
+
+  it("attributes by the same map the merge used", () => {
+    write("user.json", {
+      hooks: { PreToolUse: ["from-user"], PostToolUse: ["u"] },
+    });
+    write("project.json", {
+      hooks: { PreToolUse: ["from-project"], PostToolUse: ["p"] },
+    });
+    fs.rmSync(path.join(dir, "local.json"), { force: true });
+    const layers = loadLayers(LAYERS, layerVars(dir));
+    const policy: ArrayMergePolicy = {
+      default: "concat",
+      "hooks.PreToolUse": "override",
+    };
+    expect(provenance(layers, "hooks.PreToolUse", policy, getDotted)).toEqual({
+      from: ["project"],
+      shadowed: ["user"],
+    });
+    expect(provenance(layers, "hooks.PostToolUse", policy, getDotted)).toEqual({
+      from: ["user", "project"],
+      shadowed: [],
+    });
+    expect(effectiveSettings(layers, policy)).toEqual({
+      hooks: { PreToolUse: ["from-project"], PostToolUse: ["u", "p"] },
+    });
+  });
+
+  it("resolves a policy per path: exact key, the default, the fallback", () => {
+    expect(arrayMergeAt("override", "any.path")).toBe("override");
+    const policy: ArrayMergePolicy = {
+      default: "concat",
+      "hooks.PreToolUse": "override",
+    };
+    expect(arrayMergeAt(policy, "hooks.PreToolUse")).toBe("override");
+    expect(arrayMergeAt(policy, "hooks.PostToolUse")).toBe("concat");
+    // A map that names no default still answers — "concat", the rule every
+    // blanket string carried — and a path is never a prototype property.
+    expect(arrayMergeAt({ "a.b": "override" }, "a.c")).toBe("concat");
+    expect(arrayMergeAt({ "a.b": "override" }, "constructor")).toBe("concat");
   });
 });
 
@@ -299,6 +361,47 @@ describe("hook-registered with scope: effective", () => {
       { configDir: dir, date: "2026-09-11" },
     );
     expect(v.results[0]!.status).toBe("pass");
+  });
+
+  it("judges one stack where hooks join and a named key replaces", () => {
+    // Both behaviors in one harness: hooks accumulate across scopes, the deny
+    // list is replaced by the nearest one. A single-string policy would be
+    // quietly wrong for one of the two.
+    write("user.json", {
+      hooks: { PreToolUse: [{ hooks: [{ command: "sh command-guard.sh" }] }] },
+      permissions: { deny: ["old-thing"] },
+    });
+    write("project.json", {
+      hooks: { PreToolUse: [{ hooks: [{ command: "sh other.sh" }] }] },
+      permissions: { deny: ["new-thing"] },
+    });
+    fs.rmSync(path.join(dir, "local.json"), { force: true });
+    const v = runManifest(
+      {
+        harness: "true",
+        settingsLayers: LAYERS,
+        settingsArrays: { default: "concat", "permissions.deny": "override" },
+        probes: [
+          {
+            type: "hook-registered",
+            scope: "effective",
+            event: "PreToolUse",
+            match: "command-guard",
+          },
+          {
+            type: "config-key",
+            scope: "effective",
+            expect: { "permissions.deny": ["new-thing"] },
+          },
+        ],
+      } as unknown as Manifest,
+      { configDir: dir, date: "2026-09-16" },
+    );
+    // The hook joined across layers, so the user-scope one still counts…
+    expect(v.results[0]!.status).toBe("pass");
+    // …and the deny list was replaced, not appended: "old-thing" is gone.
+    expect(v.results[1]!.status).toBe("pass");
+    expect(v.results[1]!.detail).toContain("permissions.deny");
   });
 
   it("says the hook is nowhere when no layer carries it", () => {

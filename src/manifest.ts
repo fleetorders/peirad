@@ -4,7 +4,7 @@
  * so adding a project or a probe never touches the engine (adapter-per-consumer).
  */
 import fs from "node:fs";
-import type { ArrayMerge, SettingsLayer } from "./harness-profiles.js";
+import type { ArrayMergePolicy, SettingsLayer } from "./harness-profiles.js";
 import type { HarnessReport } from "./reports.js";
 import type { PathKind } from "./environment.js";
 
@@ -144,11 +144,13 @@ export interface Manifest {
    */
   settingsLayers?: SettingsLayer[];
   /**
-   * Replace the profile's rule for values found in more than one layer:
-   * "concat" where every layer's entries apply (a harness that runs every
-   * registered hook), "override" where the nearest scope replaces the rest.
+   * Replace the profile's rule for values found in more than one layer: one
+   * rule for every list, or a per-key map — dotted key path → rule, with a
+   * "default" entry for the paths the map does not name (D-026). "concat"
+   * where every layer's entries apply (a harness that runs every registered
+   * hook), "override" where the nearest scope replaces the rest.
    */
-  settingsArrays?: ArrayMerge;
+  settingsArrays?: ArrayMergePolicy;
   /**
    * Reports the harness can produce, added to — or replacing, by name — the
    * ones its profile declares. For a harness the profiles do not know, or a
@@ -266,6 +268,24 @@ export function loadManifest(path: string): Manifest {
         `invalid manifest ${path}: "${key}" must be an array of strings`,
       );
     }
+  }
+  // An array policy of the wrong shape would not fail later — an unknown
+  // string reads as "override" and a list reads as a map with no entries,
+  // both silently — so it fails here, at load, naming the two shapes.
+  const isRule = (v: unknown): v is "concat" | "override" =>
+    v === "concat" || v === "override";
+  const sa = m.settingsArrays;
+  if (
+    sa !== undefined &&
+    !isRule(sa) &&
+    (typeof sa !== "object" ||
+      sa === null ||
+      Array.isArray(sa) ||
+      !Object.values(sa).every(isRule))
+  ) {
+    throw new Error(
+      `invalid manifest ${path}: "settingsArrays" must be "concat", "override", or a map of dotted key paths to them`,
+    );
   }
   return m;
 }

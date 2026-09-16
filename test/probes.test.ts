@@ -348,6 +348,23 @@ describe("loadManifest", () => {
     fs.writeFileSync(bad, JSON.stringify({ harness: "x", probes: [{}] }));
     expect(() => loadManifest(bad)).toThrow(/probes\[0\]/);
   });
+  it("rejects an array policy that is neither rule nor map of rules", () => {
+    const bad = path.join(dir, "bad-arrays.json");
+    fs.writeFileSync(
+      bad,
+      JSON.stringify({ harness: "x", settingsArrays: "merge", probes: [] }),
+    );
+    expect(() => loadManifest(bad)).toThrow(/settingsArrays/);
+    fs.writeFileSync(
+      bad,
+      JSON.stringify({
+        harness: "x",
+        settingsArrays: { "hooks.PreToolUse": "join" },
+        probes: [],
+      }),
+    );
+    expect(() => loadManifest(bad)).toThrow(/settingsArrays/);
+  });
 });
 
 describe("unknown probe type", () => {
