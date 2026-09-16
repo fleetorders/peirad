@@ -64,6 +64,10 @@ const SECRET_NAME =
   /KEY|TOKEN|SECRET|PASS|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|SIGNATURE/i;
 // A value short and plain enough to be a setting rather than a secret.
 const PLAIN_VALUE = /^[\w.:@/+-]{1,80}$/;
+// A URL carrying a userinfo part (`scheme://user:password@host`) — a credential
+// embedded in a value that is otherwise short and plain, as proxy variables
+// often are. Short and plain is not the same as safe to print.
+const URL_USERINFO = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#\s]*@/;
 
 /** Whether a name looks like it holds a credential — the name test behind
  * every rule that prints a value from the user's configuration. */
@@ -78,7 +82,11 @@ export function looksLikeCredential(name: string): boolean {
  * lands in CI logs either way. */
 export function safeToShow(name: string, value: unknown): boolean {
   const text = typeof value === "string" ? value : show(value);
-  return !looksLikeCredential(name) && PLAIN_VALUE.test(text);
+  return (
+    !looksLikeCredential(name) &&
+    !URL_USERINFO.test(text) &&
+    PLAIN_VALUE.test(text)
+  );
 }
 
 /** Fold raw process output into one reportable line: leading non-empty lines,
