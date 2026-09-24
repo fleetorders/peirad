@@ -27,7 +27,18 @@ export type ProbeSpec =
       command?: string;
       critical?: boolean;
     }
-  | { type: "version" }
+  | {
+      type: "version";
+      /**
+       * Semver-ish floor the installed version must meet, compared numerically
+       * on major.minor.patch. A version string that cannot be parsed fails the
+       * probe: unparseable is not satisfiable — "unknown" is a broken
+       * integration, not a healthy one. Absent, the probe only records the
+       * version, as it always has.
+       */
+      minimum?: string;
+      critical?: boolean;
+    }
   | { type: "flag-accepted"; flags: string[]; critical?: boolean }
   | {
       type: "config-key";
@@ -177,7 +188,7 @@ const COMMON_PROBE_FIELDS: readonly string[] = ["type", "critical"];
  */
 export const PROBE_FIELDS: Record<string, readonly string[]> = {
   "command-exists": ["command"],
-  version: [],
+  version: ["minimum"],
   "flag-accepted": ["flags"],
   "config-key": ["file", "keys", "expect", "absent", "scope"],
   "transcript-field": ["glob", "fields"],

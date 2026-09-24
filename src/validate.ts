@@ -233,7 +233,7 @@ export const PROBE_SCHEMA: Record<
   { fields: Record<string, Check>; required: string[] }
 > = {
   "command-exists": { fields: { command: nonEmpty }, required: [] },
-  version: { fields: {}, required: [] },
+  version: { fields: { minimum: nonEmpty }, required: [] },
   "flag-accepted": { fields: { flags: strings(true) }, required: ["flags"] },
   "config-key": {
     fields: {
