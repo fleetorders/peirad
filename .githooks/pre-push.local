@@ -1,12 +1,13 @@
 #!/usr/bin/env sh
-
-# Screen what this push publishes: branch and tag names, tag and commit messages, and the
-# tracked hooks, scripts and package manifest. The checker is resolved by name from PATH;
-# where it is not installed there is no check, never a failure. (published-surface stub)
-GUARD=$(command -v public-surface-guard || true)
-if [ -x "$GUARD" ]; then
-  "$GUARD" --pre-push "$@" || exit 1
+# Machine-local companion checks, when this machine has any: local/hooks/pre-push at the main
+# checkout's root, gitignored and never tracked. It runs first, with this hook's arguments and
+# stdin; a contributor without one proceeds exactly as before. (published-surface stub)
+COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || COMMON_DIR=""
+COMPANION="${COMMON_DIR%/.git}/local/hooks/pre-push"
+if [ -n "$COMMON_DIR" ] && [ -x "$COMPANION" ]; then
+  "$COMPANION" "$@" || exit 1
 fi
+
 
 # Repo-owned pre-push checks (etymd never touches this file). The generated hook already runs
 # `npm run typecheck`; this adds the test suite, which is where every gate proves it fires.
@@ -22,11 +23,3 @@ fi
 echo "› npm test (git environment scrubbed)"
 # shellcheck disable=SC2046  # the split is the point: each name becomes its own `-u NAME` argument
 env $(env | grep -o '^GIT_[A-Za-z0-9_]*' | sed 's/^/-u /') npm test || exit 1
-
-# Machine-local companion checks, when this machine has any. The companion is never tracked and
-# never named here, so a contributor without one pushes exactly as before. Executing it is a
-# trust grant by design: code no repository state can show gates every push on this machine,
-# unaudited by this repo — stated here so the grant stays visible where it operates.
-if [ -x local/hooks/pre-push ]; then
-  local/hooks/pre-push || exit 1
-fi

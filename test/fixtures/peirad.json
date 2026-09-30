@@ -12,7 +12,7 @@
       "type": "hook-registered",
       "file": "settings.json",
       "event": "PreToolUse",
-      "match": "agent-guard"
+      "match": "command-guard"
     },
     {
       "type": "transcript-field",
