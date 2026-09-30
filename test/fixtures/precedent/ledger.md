@@ -6,7 +6,7 @@ Append-only fixture ledger for the precedent tests.
 
 **Scope:** canary drift · **Decided:** 2026-08-30
 
-A canary drift alarm from the nightly sweep is closed by re-running the sweep:
+A canary drift alarm from the scheduled sweep is closed by re-running the sweep:
 the drift is a known clock skew between the runner and the harness host, not a
 regression.
 
