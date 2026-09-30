@@ -1,6 +1,6 @@
 ---
 status: pending
-from: nightly sweep 2026-09-04
+from: scheduled sweep 2026-09-04
 ---
 
 # release: cut 0.3.0

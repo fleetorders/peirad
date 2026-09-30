@@ -639,25 +639,26 @@ still comes from the manifest), which is handy for testing.
 ## Precedent — has this been ruled on before?
 
 `triage` asks whether drift matters; `precedent` asks whether it has already
-been decided. Give it a work-queue entry (markdown with a `#` title and a
-`from:` frontmatter line), a decisions ledger in the `### D-00n — title` +
-`**Scope:**` style, and any directories of resolved entries:
+been decided. Give it a work item (a markdown file with a `#` title and a
+`from:` frontmatter line naming the source that raised it), a decisions log
+in the `### D-<n> — title` + `**Scope:**` style, and any directories of
+resolved work items (each carrying a `done:` line that says how it was closed):
 
 ```sh
-npx peirad precedent --entry queue/014-canary-drift.md --ledger DECISIONS.md --resolved queue/resolved --json
+npx peirad precedent --entry issues/014-canary-drift.md --ledger DECISIONS.md --resolved issues/closed --json
 ```
 
 It derives the entry's class — the title's stem (up to the first `:` or
 `—`) plus its `from:` source, with dates, versions and parentheticals
-normalized away so recurrences collapse — then looks for prior rulings:
-resolved entries of the same class (a past `done:` line is a paste-ready
-resolution) and ledger entries whose title or scope covers the class.
+normalized away so recurrences collapse — then looks for earlier decisions:
+resolved items of the same class (a past `done:` line is a paste-ready
+resolution) and decisions whose title or scope covers the class.
 
 ```json
 {
   "schema": "precedent/1",
   "matched": true,
-  "class": "canary drift · nightly sweep",
+  "class": "canary drift · scheduled sweep",
   "source": "resolved",
   "id": "013-canary-drift-2026-09-03.md",
   "resolution": "re-ran the sweep twice — known clock skew; closed without changes",
@@ -668,17 +669,18 @@ resolution) and ledger entries whose title or scope covers the class.
 Three properties keep it safe to run unattended. It is **read-only** — prints,
 never writes, never resolves anything itself. Matching is **deterministic
 text work** — no model call; the same inputs give the same answer, and every
-match names the prior artefact it rests on (`confidence: high` = a resolved
-sibling, `medium` = a ledger ruling only). And entries whose text trips a
-**rail keyword list** — credentials, guarded material (plus any words you pass with `--rail-words`), machine surfaces,
-registries, releases, outward actions — always come back `matched: false`
+match names the earlier record it rests on (`confidence: high` = a resolved
+item, `medium` = a decision only). And items whose text trips a
+**rail keyword list** — credentials, confidential material (plus any words you
+pass with `--rail-words`), system configuration, registries, releases, outward
+actions — always come back `matched: false`
 with the rail named. The list is deliberately over-broad: a false "no match"
 costs a person a glance, a false "matched" would cost a wrong auto-resolution,
 so the tool fails toward the first.
 
 Exit `0` whether or not precedent matched — the answer is information, not a
-failure. Exit `2` when inputs are unreadable (missing entry, ledger or
-`--resolved` directory) or the entry has no `#` title to derive a class from.
+failure. Exit `2` when inputs are unreadable (missing item, decisions log or
+`--resolved` directory) or the item has no `#` title to derive a class from.
 
 ## What it is NOT
 

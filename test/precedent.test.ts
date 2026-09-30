@@ -38,14 +38,14 @@ describe("class key", () => {
     const key = classKey(parseEntry(read("canary-drift-entry.md")));
     expect(key).toEqual({
       stem: "canary drift",
-      from: "nightly sweep",
-      display: "canary drift · nightly sweep",
+      from: "scheduled sweep",
+      display: "canary drift · scheduled sweep",
     });
   });
 
   it("normalizes dates, parentheticals and markdown marks away", () => {
-    expect(normalizeKeyPart("nightly sweep 2026-09-04 (rerun)")).toBe(
-      "nightly sweep",
+    expect(normalizeKeyPart("scheduled sweep 2026-09-04 (rerun)")).toBe(
+      "scheduled sweep",
     );
     expect(normalizeKeyPart("`peirad precedent` — the _command_")).toBe(
       "peirad precedent — the command",
@@ -61,13 +61,13 @@ describe("class key", () => {
 });
 
 describe("parseLedger", () => {
-  it("splits the ledger into rulings with scope and first paragraph", () => {
+  it("splits the decisions log into decisions with scope and first paragraph", () => {
     const ledger = parseLedger(read("ledger.md"));
     expect(ledger.map((l) => l.id)).toEqual(["D-201", "D-202", "D-203"]);
     const d201 = ledger.find((l) => l.id === "D-201");
     expect(d201?.scope).toContain("canary drift");
     expect(d201?.firstParagraph).toContain("closed by re-running the sweep");
-    // The block ends where the next ruling begins — no bleed.
+    // The block ends where the next decision begins — no bleed.
     expect(d201?.firstParagraph).not.toContain("manifest");
   });
 });
@@ -114,7 +114,7 @@ describe("findPrecedent", () => {
     expect(r.resolution).toContain("known clock skew");
   });
 
-  it("falls back to a ledger ruling at medium confidence", () => {
+  it("falls back to a logged decision at medium confidence", () => {
     const r = findPrecedent(
       read("manifest-drift-entry.md"),
       read("ledger.md"),
@@ -187,7 +187,7 @@ describe("precedentCommand", () => {
     });
     expect(code).toBe(0);
     expect(out.startsWith("## Precedent (machine, unverified)\n")).toBe(true);
-    expect(out).toContain("Class: canary drift · nightly sweep\n");
+    expect(out).toContain("Class: canary drift · scheduled sweep\n");
     expect(out).toContain(
       "Matched: yes (high) — sibling 013-canary-drift-2026-09-03.md",
     );
@@ -244,10 +244,10 @@ describe("precedentCommand", () => {
 });
 
 describe("rail words from the caller", () => {
-  it("a caller-supplied word trips the guarded rail as a whole word, case-insensitively", () => {
-    const text = "# Nightly note: tidy the Zebra checkout\n\nfrom: nightly\n";
+  it("a caller-supplied word trips the confidential rail as a whole word, case-insensitively", () => {
+    const text = "# Note: tidy the Zebra checkout\n\nfrom: ci\n";
     expect(detectRail(text)).toBeNull();
-    expect(detectRail(text, ["zebra"])).toBe("guarded");
+    expect(detectRail(text, ["zebra"])).toBe("confidential");
     expect(detectRail("# zebras roam\n", ["zebra"])).toBeNull();
   });
   it("parseRailWords skips blanks and comments", () => {

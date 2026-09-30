@@ -1,6 +1,6 @@
 ---
 status: pending
-from: nightly sweep 2026-09-04
+from: scheduled sweep 2026-09-04
 ---
 
 # manifest drift: probes out of step after harness upgrade

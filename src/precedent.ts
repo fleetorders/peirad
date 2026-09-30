@@ -1,7 +1,12 @@
 /**
- * `peirad precedent` — match a queue entry to prior rulings and emit the
- * resolution to apply, for the unattended caller that would otherwise
- * re-litigate an already-ruled alarm.
+ * `peirad precedent` — match a work item to earlier decisions and emit the
+ * resolution to apply, so an automated caller can close an alarm that was
+ * already decided instead of raising it again.
+ *
+ * A work item is a markdown file: optional `---` frontmatter (a `from:` line
+ * names the source that raised it), a `#` title, and — once resolved — a
+ * `done:` line saying how it was closed. The decisions log is markdown with
+ * `### D-<n> — title` headings, each followed by a `**Scope:**` line.
  *
  * Where triage asks WHETHER drift matters, precedent asks whether it has
  * already been DECIDED. The match is deterministic text work — no harness
@@ -9,19 +14,19 @@
  *
  * - the command is read-only: it prints, never writes, and never resolves
  *   anything itself;
- * - a match must name a quoteable prior artefact (a resolved sibling's
- *   `done:` line or a ledger ruling) — an assertion without an artefact
- *   reads as "no precedent found";
- * - entries whose text trips a rail keyword list (credentials, guarded, machine
- *   surface, registry, release, outward action) always report no match with
- *   the rail named — deliberately over-broad, because a false "no match"
+ * - a match must name a quotable earlier record (a resolved item's `done:`
+ *   line or a decision in the log) — an assertion without one reads as "no
+ *   precedent found";
+ * - items whose text trips a rail keyword list (credentials, confidential,
+ *   system config, registry, release, outward action) always report no match
+ *   with the rail named — deliberately over-broad, because a false "no match"
  *   costs a person a glance and a false "matched" costs a wrong
  *   auto-resolution.
  */
 import fs from "node:fs";
 import path from "node:path";
 
-/** A parsed queue entry: frontmatter values, first `#` title, `done:` lines. */
+/** A parsed work item: frontmatter values, first `#` title, `done:` lines. */
 export interface ParsedEntry {
   meta: Record<string, string>;
   title: string | null;
@@ -30,7 +35,7 @@ export interface ParsedEntry {
   text: string;
 }
 
-/** Parse a queue entry: line-based frontmatter, first h1, every `done:` line. */
+/** Parse a work item: line-based frontmatter, first h1, every `done:` line. */
 export function parseEntry(md: string): ParsedEntry {
   const lines = md.split("\n");
   const meta: Record<string, string> = {};
@@ -72,8 +77,8 @@ export interface ClassKey {
 /**
  * Normalize a key part: strip parenthetical qualifiers, number runs with
  * their joining punctuation (dates, versions, counts, ids) and markdown
- * marks, collapse case and whitespace — so "nightly sweep 2026-09-04" and
- * "nightly sweep 2026-09-05" are one source.
+ * marks, collapse case and whitespace — so "scheduled sweep 2026-09-04" and
+ * "scheduled sweep 2026-09-05" are one source.
  */
 export function normalizeKeyPart(s: string): string {
   return s
@@ -94,13 +99,13 @@ export function classKey(e: ParsedEntry): ClassKey {
   return { stem, from, display: from ? `${stem} · ${from}` : stem };
 }
 
-/** One ruling from a decisions ledger (`### D-00n — title` blocks). */
+/** One decision from a decisions log (`### D-<n> — title` blocks). */
 export interface LedgerEntry {
   id: string;
   title: string;
   /** The `**Scope:**` line's text, verbatim. */
   scope: string;
-  /** The first paragraph after the Scope line — the ruling statement. */
+  /** The first paragraph after the Scope line — the decision statement. */
   firstParagraph: string;
 }
 
@@ -139,7 +144,7 @@ export function parseLedger(md: string): LedgerEntry[] {
 }
 
 /**
- * Rail keyword list — entry classes that are never auto-resolved. Order is
+ * Rail keyword list — item classes that are never auto-resolved. Order is
  * the precedence when several hit; most sensitive first.
  */
 const RAILS: { name: string; test: RegExp }[] = [
@@ -148,12 +153,12 @@ const RAILS: { name: string; test: RegExp }[] = [
     test: /\b(token|secret|password|credential|api[- ]?key|keychain|private key|\.env)\b/i,
   },
   {
-    name: "guarded",
-    test: /\b(guarded|confidential|proprietary|internal[- ]only)\b/i,
+    name: "confidential",
+    test: /\b(confidential|proprietary|internal[- ]only|restricted)\b/i,
   },
   {
-    name: "machine-surface",
-    test: /\b(machine surface|launchagent|global config|dotfile|ide profile|home[- ]dir)\b/i,
+    name: "system-config",
+    test: /\b(system config|launchagent|global config|dotfile|ide profile|home[- ]dir)\b/i,
   },
   { name: "registry", test: /\bregistry\b/i },
   { name: "release", test: /\b(publish|release|git tag|npm publish)\b/i },
@@ -164,9 +169,9 @@ const RAILS: { name: string; test: RegExp }[] = [
 ];
 
 /**
- * Extra words for the guarded rail, supplied by the caller (one per line, `#` comments
- * allowed): a fleet's own vocabulary for material that must never auto-resolve stays in
- * the fleet, never in this tool. Matched as whole words, case-insensitively.
+ * Extra words for the confidential rail, supplied by the caller (one per line, `#`
+ * comments allowed): a project's own names for material that must never auto-resolve
+ * stay in that project, not in this tool. Matched as whole words, case-insensitively.
  */
 export function parseRailWords(text: string): string[] {
   return text
@@ -188,7 +193,7 @@ export function detectRail(
       `\\b(${extraWords.map(escapeRe).join("|")})\\b`,
       "i",
     );
-    if (extra.test(text)) return "guarded";
+    if (extra.test(text)) return "confidential";
   }
   for (const rail of RAILS) {
     if (rail.test.test(text)) return rail.name;
@@ -196,7 +201,7 @@ export function detectRail(
   return null;
 }
 
-/** A resolved sibling candidate, as passed in by the caller (file + text). */
+/** A resolved item of the same kind, as passed in by the caller (file + text). */
 export interface SiblingInput {
   file: string;
   text: string;
@@ -205,14 +210,14 @@ export interface SiblingInput {
 export interface PrecedentResult {
   schema: "precedent/1";
   matched: boolean;
-  /** The class key the match was sought under, e.g. "canary drift · nightly". */
+  /** The class key the match was sought under, e.g. "canary drift · scheduled sweep". */
   class: string;
   source: "resolved" | "ledger" | null;
-  /** The sibling filename or the ledger ruling id that was matched. */
+  /** The resolved item's filename or the decision id that was matched. */
   id: string | null;
-  /** The resolution to apply: a sibling's `done:` line, or the ruling's first paragraph. */
+  /** The resolution to apply: a resolved item's `done:` line, or the decision's first paragraph. */
   resolution: string | null;
-  /** Positional, not semantic: high = a sibling resolution, medium = a ruling only. */
+  /** Positional, not semantic: high = a resolved item, medium = a decision only. */
   confidence: "high" | "medium" | null;
   /** Why nothing matched, when nothing did. */
   reason: string | null;
@@ -223,8 +228,8 @@ export interface PrecedentResult {
 }
 
 /**
- * Find precedent for one entry against a ledger and a set of resolved
- * entries. Pure: all inputs are texts, so the same inputs give the same
+ * Find precedent for one work item against a decisions log and a set of
+ * resolved items. Pure: all inputs are texts, so the same inputs give the same
  * answer. Throws when the entry has no `#` title to derive a class from.
  */
 export function findPrecedent(
@@ -303,7 +308,7 @@ export function findPrecedent(
     id: null,
     resolution: null,
     confidence: null,
-    reason: `no resolved sibling and no ledger ruling covers class "${key.display}"`,
+    reason: `no resolved item and no decision covers class "${key.display}"`,
     rail: null,
   };
 }
@@ -334,7 +339,7 @@ export interface PrecedentCliOptions {
   entry: string;
   ledger: string;
   resolved?: string[];
-  /** Extra whole-word keywords for the guarded rail, one per line. */
+  /** Extra whole-word keywords for the confidential rail, one per line. */
   railWords?: string;
   json?: boolean;
 }

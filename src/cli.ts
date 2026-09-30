@@ -402,23 +402,20 @@ program
 program
   .command("precedent")
   .description(
-    "match a queue entry to prior rulings and emit the resolution to apply (read-only)",
+    "match a work item to earlier decisions and emit the resolution to apply (read-only)",
   )
   .requiredOption(
     "--entry <file>",
-    "queue entry (markdown) to find precedent for",
+    "work item (markdown with a # title) to find precedent for",
   )
   .requiredOption(
     "--ledger <file>",
-    "decisions ledger (markdown) with D-entries",
+    "decisions log (markdown, ### D-<n> — title headings)",
   )
-  .option(
-    "--resolved <dir...>",
-    "directories of resolved entries to search for siblings",
-  )
+  .option("--resolved <dir...>", "directories of resolved work items to search")
   .option(
     "--rail-words <file>",
-    "extra whole-word keywords for the guarded rail, one per line (a fleet's own vocabulary stays in the fleet)",
+    "extra whole-word keywords for the confidential rail, one per line",
   )
   .option("--json", "emit the precedent as JSON")
   .action(
