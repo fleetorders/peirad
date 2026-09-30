@@ -213,7 +213,7 @@ describe("config-key with scope: effective", () => {
 describe("hook-registered with scope: effective", () => {
   it("finds a hook that moved from project scope to user scope", () => {
     write("user.json", {
-      hooks: { PreToolUse: [{ hooks: [{ command: "sh agent-guard.sh" }] }] },
+      hooks: { PreToolUse: [{ hooks: [{ command: "sh command-guard.sh" }] }] },
     });
     write("project.json", { other: true });
     const r = runProbe(
@@ -221,7 +221,7 @@ describe("hook-registered with scope: effective", () => {
         type: "hook-registered",
         scope: "effective",
         event: "PreToolUse",
-        match: "agent-guard",
+        match: "command-guard",
       },
       ctx(),
       [],
@@ -232,7 +232,7 @@ describe("hook-registered with scope: effective", () => {
 
   it("keeps a hook registered in either scope while the lists join", () => {
     write("user.json", {
-      hooks: { PreToolUse: [{ hooks: [{ command: "sh agent-guard.sh" }] }] },
+      hooks: { PreToolUse: [{ hooks: [{ command: "sh command-guard.sh" }] }] },
     });
     write("project.json", {
       hooks: { PreToolUse: [{ hooks: [{ command: "sh other.sh" }] }] },
@@ -242,7 +242,7 @@ describe("hook-registered with scope: effective", () => {
         type: "hook-registered",
         scope: "effective",
         event: "PreToolUse",
-        match: "agent-guard",
+        match: "command-guard",
       },
       ctx(),
       [],
@@ -255,7 +255,7 @@ describe("hook-registered with scope: effective", () => {
     // the settings, reads as configured, and never runs. The single-file probe
     // called that a pass.
     write("user.json", {
-      hooks: { PreToolUse: [{ hooks: [{ command: "sh agent-guard.sh" }] }] },
+      hooks: { PreToolUse: [{ hooks: [{ command: "sh command-guard.sh" }] }] },
     });
     write("project.json", {
       hooks: { PreToolUse: [{ hooks: [{ command: "sh other.sh" }] }] },
@@ -270,7 +270,7 @@ describe("hook-registered with scope: effective", () => {
             type: "hook-registered",
             scope: "effective",
             event: "PreToolUse",
-            match: "agent-guard",
+            match: "command-guard",
             critical: true,
           },
         ],
@@ -292,7 +292,7 @@ describe("hook-registered with scope: effective", () => {
             type: "hook-registered",
             scope: "effective",
             event: "PreToolUse",
-            match: "agent-guard",
+            match: "command-guard",
           },
         ],
       } as unknown as Manifest,
@@ -309,7 +309,7 @@ describe("hook-registered with scope: effective", () => {
         type: "hook-registered",
         scope: "effective",
         event: "PreToolUse",
-        match: "agent-guard",
+        match: "command-guard",
       },
       ctx(),
       [],

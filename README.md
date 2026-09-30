@@ -157,12 +157,12 @@ harness's own precedence:
   "type": "hook-registered",
   "scope": "effective",
   "event": "PreToolUse",
-  "match": "agent-guard"
+  "match": "command-guard"
 }
 ```
 
 ```
-ok    hook-registered(PreToolUse~agent-guard): hook "agent-guard" registered on PreToolUse in user scope [read user, project, 2 absent]
+ok    hook-registered(PreToolUse~command-guard): hook "command-guard" registered on PreToolUse in user scope [read user, project, 2 absent]
 DEGR  config-key(effective): voice.enabled is false (expected true) [read user, project, 2 absent]
 ```
 
