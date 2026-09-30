@@ -1,5 +1,53 @@
 # peirad
 
+## 0.5.1
+
+### Patch Changes
+
+- 54c9406: A malformed baseline costs a note, never the verdict; declarations no longer hide movement in other sources.
+
+  A baseline whose recorded lists hold something other than names — `"settings": {"settings.json": true}` — passed the file's shape check and then threw mid-comparison, and since baselines load automatically, the whole run exited without a verdict. Recorded lists are now validated when the file is read, and a comparison that cannot complete is contained the same way, as a note. Separately, the ledger's "declared" filter was global across every settings source and transcript glob, so declaring a key against one file hid the same key's removal from another file; declarations are now tracked per source, and movement in a file nobody declared the key against is reported.
+
+- 54c9406: Effective settings now follow the harness's configuration-directory override.
+
+  A `scope: "effective"` probe read the user layer beneath the home directory (`~/.claude/settings.json`), ignoring `CLAUDE_CONFIG_DIR` and `CODEX_HOME` — the variables the live run already honours — so it could report a passing setting from a configuration the harness never loads. The user layer of each built-in profile is declared with a `{userConfigDir}` template that resolves exactly where the harness resolves it: the relocation variable when set, the default beneath the home directory otherwise. A manifest's own `settingsLayers` may use the template too.
+
+- 54c9406: A URL with a userinfo part is never printed in a verdict line.
+
+  `HTTP_PROXY=http://user:password@host` is short and plain in the sense the environment contract's redaction check used, so a mismatch printed the password straight into the log. A value carrying `scheme://…@…` credentials is now treated as never safe to show — in the value comparisons and in the one "points at X" line that prints a path — whatever the variable's name looks like.
+
+- 6ba3ddc: A `*` in a middle path segment of a transcript glob is now honoured.
+
+  `projects/*/*.jsonl` is the natural way to write the transcript layout of a harness that keeps one folder per project, but the matcher ignored everything after the first `*` except the extension: such a pattern matched files one level too shallow, so `projects/*/x.jsonl`-shaped globs asserted their fields against the wrong file — a pass that proved nothing — or reported "no file matched" for transcripts that were plainly there. There is now one segment-aware glob implementation shared by the transcript probes, the baseline observer and the live run's session lookup: `*` matches within one path segment, a `**` segment across any number of them. `peirad validate` warns about a glob that uses characters this engine matches literally (`?`, brackets, braces), instead of leaving the mismatch silent.
+
+- 54c9406: `--live` cleanup now removes only a session the run itself created.
+
+  When a manifest's `promptArgs` resume an existing conversation, the turn appends to that conversation's transcript — which passes the freshness check cleanup relied on, so the run deleted the user's earlier conversation along with its own session. Before anything runs, the live step now records which transcripts already exist where this turn's session will write one; a transcript that was already there is left in place and named, because this invocation did not create it. A session this run did create is removed exactly as before.
+
+- d9fd3ec: An unexpected failure inside `--live` no longer throws away the verdict.
+
+  The live step touches your real configuration directory, so it is also the one step with failures no fixture foresaw — a temp directory that cannot be created, a transcript that vanishes between listing and reading. Any such error used to escape the run: the CLI printed one line and exited 2, discarding every deterministic probe result that had already been collected. A failure of the live step is now contained to a single `live: n/a` line naming what went wrong; the rest of the verdict stands, and the exit code follows the probes' own registers. A transcript file that disappears mid-walk is skipped, like the same race already was elsewhere.
+
+- 54c9406: A relative harness path survives the live turn's working directory, and an undrivable hook event is unchecked rather than drift.
+
+  The live run works from a temporary directory, so a harness named by a path relative to where peirad was started — which the deterministic probes resolve fine — failed its first spawn there and reported a signed-in harness as not signed in. The path is made absolute, against the directory the run started in, before anything spawns.
+
+  And a declared hook event that fires only on an action no scenario this run performs — a compact, a subagent stop — used to read as drift when its fixture hook predictably did not run. The profile now declares which events a minimal turn exercises; an event outside both lists reports `n/a`, registered and unchecked, instead of blocking a healthy integration.
+
+- 936068c: The harness name is resolved on PATH directly, never through a shell.
+
+  `command-exists` used to find the harness by asking a shell to run `command -v <harness>`, with the manifest's `harness` string unquoted on the command line. A nonsense string containing shell syntax was evaluated as such — `true; echo marker` reported the marker's output as the resolved path and read as installed. Resolution now searches PATH for an executable file (or checks a path directly), shared with the environment contract's own `executable` lookup, so a harness string is only ever a file name to find: ordinary names and paths resolve exactly as before, and a string that names nothing reports drift instead of a false pass.
+
+- 458f1b8: `peirad precedent` is described in general terms: a work item, a decisions log and resolved items. Two rail names change to plainer ones: `guarded` is now `confidential` (the word "guarded" no longer trips it; `--rail-words` entries now report `confidential`), and `machine-surface` is now `system-config`. A caller that keys on those two rail names needs the new ones; a caller that only checks whether `rail` is set is unaffected.
+- 54c9406: A harness report whose entries are not objects is refused, not emptied.
+
+  Reading a JSON report silently dropped every entry that was not an object, so an output like `["server-one"]` became a valid report with zero records — and a `harness-reports` probe with no `find` passed a schema it never read. Non-object entries are now a changed shape: the probe says `n/a` and names how many entries were not objects, never a pass.
+
+- 67a774f: Settings values in a verdict line follow the env probe's rule: a value is printed only when its key does not look like a credential and the value is short and plain — a leftover key declared `absent` that happens to hold a token is named without being echoed, and a mismatch on a credential-shaped key reports that it holds a different value without printing either side. The verdict header names the profile beside the harness only when the two differ, so a manifest whose harness string is its profile prints `harness claude 2.1.223` instead of `harness claude (claude) 2.1.223`.
+- 54c9406: A transcript glob can point outside the base directory with `{home}` and `{configDir}`.
+
+  A harness keeps its transcripts in its own configuration directory and its project hooks in the project — no single relative base directory expresses both, so a drafted manifest found either the hooks or the transcripts, never both. A `transcript-field` glob now expands `{home}` and `{configDir}` templates (`{home}/.claude/projects/**/*.jsonl`), and `peirad init` drafts exactly that shape, so the draft works from the project directory its hook probes read.
+
 ## 0.5.0
 
 ### Minor Changes
