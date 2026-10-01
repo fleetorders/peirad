@@ -11,8 +11,7 @@ fi
 
 # Repo-owned pre-push checks (etymd never touches this file). The generated hook already runs
 # `npm run typecheck`; this adds the test suite, which is where every gate proves it fires.
-# Until now the suite ran only in CI, which is the slowest feedback loop there is: a failure
-# was invisible until after the push.
+# CI runs the suite too, but a failure there shows only after the push.
 #
 # The runner is wrapped in a scrub of git's exported environment. Git exports GIT_DIR and
 # GIT_INDEX_FILE to every hook, and a child git obeys those over its own working directory —

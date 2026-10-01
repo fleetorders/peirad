@@ -30,8 +30,8 @@ import { compareWithScan, scanProject, type ScanReport } from "./derive.js";
 export interface Verdict {
   name: string;
   harness: string;
-  /** Resolved path of the harness binary (`command -v`); omitted when the
-   * harness is not resolvable on PATH. */
+  /** Resolved path of the harness binary, found by searching PATH; omitted when
+   * the harness is not resolvable there. */
   path?: string;
   /** Invocation profile the probes ran under ("claude", "codex", …). */
   profile: string;
@@ -126,7 +126,7 @@ export function runManifest(manifest: Manifest, opts: RunOptions): Verdict {
     // The live step is the one part of a run that touches the user's real
     // configuration directory, so it is also the one with failures no fixture
     // foresaw. A throw here must cost its own line, never the whole verdict:
-    // every deterministic probe result above still holds (D-008, D-024).
+    // every deterministic probe result above still holds (docs/decisions.md, D-008 and D-024).
     let outcome: ReturnType<typeof runLive>;
     try {
       outcome = runLive(manifest, ctx, profile, opts.live);

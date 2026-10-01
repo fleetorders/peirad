@@ -218,7 +218,7 @@ function unknownKeys(
  * Field names on a probe that this build does not understand. Returns nothing
  * for a probe type the build does not know at all — there is no field list to
  * compare against, and such a probe already renders `n/a` naming the type
- * (D-008); reporting its fields as well would say the same thing twice.
+ * (docs/decisions.md, D-008); reporting its fields as well would say the same thing twice.
  */
 export function unknownProbeFields(spec: ProbeSpec): string[] {
   const known = PROBE_FIELDS[spec.type];

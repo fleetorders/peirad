@@ -415,7 +415,7 @@ program
   .option("--resolved <dir...>", "directories of resolved work items to search")
   .option(
     "--rail-words <file>",
-    "extra whole-word keywords for the confidential rail, one per line",
+    "extra whole-word keywords for the confidential stop-list topic, one per line",
   )
   .option("--json", "emit the precedent as JSON")
   .action(

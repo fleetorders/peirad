@@ -17,9 +17,9 @@
  * - a match must name a quotable earlier record (a resolved item's `done:`
  *   line or a decision in the log) — an assertion without one reads as "no
  *   precedent found";
- * - items whose text trips a rail keyword list (credentials, confidential,
- *   system config, registry, release, outward action) always report no match
- *   with the rail named — deliberately over-broad, because a false "no match"
+ * - items whose text trips one of the rails, a fixed stop list of topics
+ *   (credentials, confidential material, system configuration, registries,
+ *   releases, outward actions), always report no match with the rail named — deliberately over-broad, because a false "no match"
  *   costs a person a glance and a false "matched" costs a wrong
  *   auto-resolution.
  */
@@ -170,8 +170,8 @@ const RAILS: { name: string; test: RegExp }[] = [
 
 /**
  * Extra words for the confidential rail, supplied by the caller (one per line, `#`
- * comments allowed): a project's own names for material that must never auto-resolve
- * stay in that project, not in this tool. Matched as whole words, case-insensitively.
+ * comments allowed): a project's own words for material that must never be resolved
+ * automatically are supplied by the project rather than built into this tool. Matched as whole words, case-insensitively.
  */
 export function parseRailWords(text: string): string[] {
   return text
