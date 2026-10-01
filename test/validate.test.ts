@@ -36,7 +36,7 @@ describe("the strict schema", () => {
 
   it("accepts the repository's own example manifest without errors", () => {
     const r = validateManifestFile(
-      path.join(__dirname, "..", "peirad.example.json"),
+      path.join(__dirname, "..", "docs", "peirad.example.json"),
     );
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.errors).toEqual([]);
