@@ -1,5 +1,12 @@
 # peirad
 
+## 0.5.2
+
+### Patch Changes
+
+- d9ca7f1: The README links the example manifest (now under docs/) from the Quick start and says where `precedent` fits beside `triage`.
+- 881fc3c: Public repository shape: the README is shorter, with probes, commands, harness profiles, triage and precedent documented under docs/, and the design record moves to docs/decisions.md.
+
 ## 0.5.1
 
 ### Patch Changes
