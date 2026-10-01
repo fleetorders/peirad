@@ -42,7 +42,9 @@ drifted; changing it is yours.
 
 ## Quick start
 
-Write a small `peirad.json` describing what your integration relies on, then run:
+Write a small `peirad.json` describing what your integration relies on (start from
+[the example manifest](https://github.com/fleetorders/peirad/blob/main/docs/peirad.example.json),
+or let `peirad init` draft one), then run:
 
 ```sh
 npx peirad --manifest peirad.json
@@ -131,7 +133,10 @@ probe's base directory along. Add `--json` for a machine-readable verdict.
 - `peirad triage` pre-assesses an alarm against a rubric through the manifest's own harness,
   labelled machine-written and unverified.
 - `peirad precedent` matches a work item to earlier decisions by text alone and prints the
-  resolution to apply; it never acts.
+  resolution to apply; it never acts. It is the step after `triage`: a drift alarm often
+  repeats one already decided, and precedent finds that decision in a markdown decisions log.
+  It needs no harness and works for any team that keeps its log in the format the reference
+  page describes.
 
 Details: [commands](https://github.com/fleetorders/peirad/blob/main/docs/commands.md) · [harness profiles](https://github.com/fleetorders/peirad/blob/main/docs/harness-profiles.md) ·
 [triage and precedent](https://github.com/fleetorders/peirad/blob/main/docs/triage-and-precedent.md).
