@@ -59,7 +59,7 @@ describe("buildChangelogRubric", () => {
     expect(rubric).toContain("-p, --allowedTools");
     expect(rubric).toContain("hooks.PreToolUse");
     expect(rubric).toContain("PreToolUse");
-    expect(rubric).toContain("agent-guard");
+    expect(rubric).toContain("my-guard");
     expect(rubric).toContain("type, message");
   });
 });

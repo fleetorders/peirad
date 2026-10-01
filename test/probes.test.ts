@@ -24,7 +24,7 @@ beforeAll(() => {
   fs.writeFileSync(
     path.join(dir, "settings.json"),
     JSON.stringify({
-      hooks: { PreToolUse: [{ hooks: [{ command: "sh agent-guard.sh" }] }] },
+      hooks: { PreToolUse: [{ hooks: [{ command: "sh my-guard.sh" }] }] },
     }),
   );
   fs.mkdirSync(path.join(dir, "projects", "a"), { recursive: true });
@@ -78,7 +78,7 @@ describe("hook-registered", () => {
         type: "hook-registered",
         file: "settings.json",
         event: "PreToolUse",
-        match: "agent-guard",
+        match: "my-guard",
       },
       ctx(),
       [],
