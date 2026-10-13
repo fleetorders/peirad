@@ -366,8 +366,8 @@ export function checkTranscriptFile(
  * skipping a declared field reports `degraded` and names the field. It is
  * never `blocked`, however critical the probe: an out-of-date checker is not
  * drift in the harness, and the fix is an upgrade rather than an investigation
- * (D-014). An unknown probe TYPE is a different case, already answered by
- * D-008: nothing about it is understood, so it renders `n/a`.
+ * (docs/decisions.md, D-014). An unknown probe TYPE is a different case, already answered by
+ * docs/decisions.md, D-008: nothing about it is understood, so it renders `n/a`.
  */
 export function runProbe(
   spec: ProbeSpec,

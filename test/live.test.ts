@@ -631,7 +631,7 @@ describe("pieces of the live run", () => {
       const strip = (x: typeof v): typeof v.results =>
         x.results.filter((r) => !r.probe.startsWith("live"));
       // The same deterministic verdict the run delivers without --live, plus
-      // one n/a line for the live step — never a lost verdict (D-008).
+      // one n/a line for the live step — never a lost verdict (docs/decisions.md, D-008).
       expect(strip(v)).toEqual(strip(plain));
       expect(v.results.filter((r) => r.probe.startsWith("live"))).toEqual([
         {

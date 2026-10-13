@@ -1,9 +1,9 @@
 #!/bin/sh
-# Fixture for the script-probe acceptance run: a repo-provided check that
-# demonstrates all three exit channels of the `script` probe contract.
-#   scripts/script-probe.sh pass   → exit 0
-#   scripts/script-probe.sh fail   → exit 1, stdout is the finding
-#   scripts/script-probe.sh error  → exit 2, n/a (warn, never a verdict)
+# Test fixture: a repo-provided check that exercises all three exit channels of the
+# `script` probe contract.
+#   test/fixtures/script-probe.sh pass   → exit 0
+#   test/fixtures/script-probe.sh fail   → exit 1, stdout is the finding
+#   test/fixtures/script-probe.sh error  → exit 2, n/a (no verdict)
 case "${1:-pass}" in
   pass)
     echo "CHECK PASSES — the thing this repo checks still holds"

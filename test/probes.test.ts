@@ -24,7 +24,7 @@ beforeAll(() => {
   fs.writeFileSync(
     path.join(dir, "settings.json"),
     JSON.stringify({
-      hooks: { PreToolUse: [{ hooks: [{ command: "sh my-guard.sh" }] }] },
+      hooks: { PreToolUse: [{ hooks: [{ command: "sh command-guard.sh" }] }] },
     }),
   );
   fs.mkdirSync(path.join(dir, "projects", "a"), { recursive: true });
@@ -78,7 +78,7 @@ describe("hook-registered", () => {
         type: "hook-registered",
         file: "settings.json",
         event: "PreToolUse",
-        match: "my-guard",
+        match: "command-guard",
       },
       ctx(),
       [],
@@ -407,7 +407,8 @@ describe("runManifest", () => {
 });
 
 describe("profile applicability", () => {
-  // D-009: applicability follows the file shape, not the harness name. Codex
+  // Applicability follows the file shape, not the harness name (docs/decisions.md,
+  // D-005). Codex
   // keeps hooks in a JSON file of the same `hooks.<Event>[].hooks[].command`
   // shape, so the settings probes apply to it — a manifest names that file.
   it("config-key applies under the codex profile against its hooks JSON", () => {
@@ -784,8 +785,8 @@ describe("command-exists: helper programs", () => {
     );
     expect(r.status).toBe("blocked");
     expect(r.detail).toContain("not found on PATH");
-    // Under the old shell lookup this string "resolved" to the injected
-    // command's own output; resolveBinary must return null for it instead.
+    // A string carrying shell syntax is not a program name: resolveBinary must
+    // return null for it rather than let anything run.
     expect(resolveBinary("true; echo PEIRAD_INJECTION_MARKER")).toBeNull();
   });
 });

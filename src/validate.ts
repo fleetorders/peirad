@@ -3,7 +3,7 @@
  *
  * A run is lenient on purpose: a field it does not understand is skipped and
  * named, so a manifest written for a newer release still delivers a verdict on
- * an older install (D-014). Lenient is only safe if something strict exists.
+ * an older install (docs/decisions.md, D-014). Lenient is only safe if something strict exists.
  * This is that: it refuses an unknown field, an unknown probe type, a value of
  * the wrong shape and a probe that declares nothing — each with the path and
  * the line — before a single harness process is started. A typo that a run

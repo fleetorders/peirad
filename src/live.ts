@@ -434,7 +434,7 @@ export function runLive(
     // already exist where this turn's session will write one. A resumed
     // conversation appends to its own file, which passes any freshness check —
     // only a file that was NOT here when the turn began is one this
-    // invocation created, and only that one may be removed (D-024).
+    // invocation created, and only that one may be removed (docs/decisions.md, D-024).
     const configDir = harnessConfigDir(live, env);
     const existedBefore = new Set(
       listMatches(configDir, live.transcript.replace(/\{session\}/g, "*")),

@@ -4,6 +4,8 @@ dist/
 .env
 .DS_Store
 .etymd/cache/
+.etymd/baseline.json
+.etymd/ledger.json
 
 # local-only tooling: never tracked, never published
 /local/
