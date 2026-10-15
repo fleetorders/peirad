@@ -1,13 +1,10 @@
 #!/usr/bin/env sh
-# Machine-local companion checks, when this machine has any: local/hooks/pre-push at the main
-# checkout's root, gitignored and never tracked. It runs first, with this hook's arguments and
-# stdin; a contributor without one proceeds exactly as before.
-COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || COMMON_DIR=""
-COMPANION="${COMMON_DIR%/.git}/local/hooks/pre-push"
-if [ -n "$COMMON_DIR" ] && [ -x "$COMPANION" ]; then
-  "$COMPANION" "$@" || exit 1
-fi
-
+# Machine-local companion checks, if this machine has any — first, so a
+# companion reading the ref list on stdin still sees it. Resolution and the
+# trust-grant note live in lib/companion.sh.
+"$(dirname "$0")/lib/companion.sh" pre-push "$@"
+rc=$?
+[ "$rc" -ne 0 ] && exit "$rc"
 
 # Repo-owned pre-push checks (etymd never touches this file). The generated hook already runs
 # `npm run typecheck`; this adds the test suite, which is where every gate proves it fires.
