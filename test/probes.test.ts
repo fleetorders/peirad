@@ -76,11 +76,7 @@ describe("version", () => {
     }
   });
   it("compares numerically, not lexically: 2.1.10 beats the floor 2.1.9", () => {
-    const r = runProbe(
-      { type: "version", minimum: "2.1.9" },
-      at("2.1.10"),
-      [],
-    );
+    const r = runProbe({ type: "version", minimum: "2.1.9" }, at("2.1.10"), []);
     expect(r.status).toBe("pass");
   });
   it("fails when the version cannot be parsed against a floor", () => {

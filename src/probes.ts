@@ -141,8 +141,7 @@ const atLeast = (
 ): boolean =>
   have[0] > floor[0] ||
   (have[0] === floor[0] &&
-    (have[1] > floor[1] ||
-      (have[1] === floor[1] && have[2] >= floor[2])));
+    (have[1] > floor[1] || (have[1] === floor[1] && have[2] >= floor[2])));
 
 /** The whole tokens of a harness's help output. The text is split on
  * whitespace and on the punctuation that glues a flag to its placeholder, so a
