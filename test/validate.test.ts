@@ -107,7 +107,7 @@ describe("what validate refuses, and where", () => {
       'promptArgs: "promptArgs" must contain the {prompt} placeholder',
     );
     expect(m).toContain(
-      'settingsArrays: "settingsArrays" must be one of "concat", "override"',
+      'settingsArrays: "settingsArrays" must be "concat", "override", or a map of dotted key paths to them',
     );
     expect(m).toContain(
       'probes[0].flags: "flags" must be a non-empty array of strings',
@@ -121,6 +121,39 @@ describe("what validate refuses, and where", () => {
     expect(m).toContain(
       'probes[3].timeoutMs: "timeoutMs" must be a positive number',
     );
+  });
+
+  it("accepts a per-key array policy, and refuses a bad rule inside it", () => {
+    const ok = check({
+      harness: "claude",
+      settingsArrays: {
+        default: "concat",
+        "hooks.PreToolUse": "override",
+      },
+      probes: [],
+    });
+    expect(messages(ok)).toEqual([]);
+    expect(ok.warnings).toEqual([]);
+    const bad = check({
+      harness: "claude",
+      settingsArrays: { "hooks.PreToolUse": "join" },
+      probes: [],
+    });
+    expect(messages(bad)).toEqual([
+      'settingsArrays: "settingsArrays" "hooks.PreToolUse" must be one of "concat", "override"',
+    ]);
+  });
+
+  it("warns when a per-key policy names no default", () => {
+    const r = check({
+      harness: "claude",
+      settingsArrays: { "hooks.PreToolUse": "override" },
+      probes: [],
+    });
+    expect(messages(r)).toEqual([]);
+    expect(r.warnings.map((w) => `${w.path}: ${w.message}`)).toEqual([
+      'settingsArrays: "settingsArrays" names no "default" — every path it does not name merges "concat"; declare one to say so',
+    ]);
   });
 
   it("refuses a probe that is missing what it needs or declares nothing", () => {

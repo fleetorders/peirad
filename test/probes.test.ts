@@ -35,6 +35,61 @@ beforeAll(() => {
 });
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+describe("version", () => {
+  const at = (harnessVersion: string) => ({ ...ctx(), harnessVersion });
+  it("records the version without judging it when no floor is declared", () => {
+    const r = runProbe({ type: "version" }, at("fake-harness 1.2.3"), []);
+    expect(r.status).toBe("pass");
+    expect(r.detail).toBe("fake-harness 1.2.3");
+  });
+  it("passes without a floor even when the version is unparseable", () => {
+    const r = runProbe({ type: "version" }, at("unknown"), []);
+    expect(r.status).toBe("pass");
+  });
+  it("fails against a version older than the floor, naming both sides", () => {
+    const r = runProbe(
+      { type: "version", minimum: "2.1.277" },
+      at("fake-harness 2.1.100"),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toBe(
+      "harness fake-harness 2.1.100 is older than the manifest's floor 2.1.277",
+    );
+  });
+  it("blocks instead of degrading when the probe is critical", () => {
+    const r = runProbe(
+      { type: "version", minimum: "9.9.9", critical: true },
+      at("2.1.300"),
+      [],
+    );
+    expect(r.status).toBe("blocked");
+  });
+  it("passes at the floor itself and above it", () => {
+    for (const v of ["2.1.277", "2.1.278", "2.2.0", "3.0.0"]) {
+      const r = runProbe(
+        { type: "version", minimum: "2.1.277" },
+        at(`fake-harness ${v}`),
+        [],
+      );
+      expect(r.status, v).toBe("pass");
+    }
+  });
+  it("compares numerically, not lexically: 2.1.10 beats the floor 2.1.9", () => {
+    const r = runProbe({ type: "version", minimum: "2.1.9" }, at("2.1.10"), []);
+    expect(r.status).toBe("pass");
+  });
+  it("fails when the version cannot be parsed against a floor", () => {
+    const r = runProbe(
+      { type: "version", minimum: "2.1.277" },
+      at("unknown"),
+      [],
+    );
+    expect(r.status).toBe("degraded");
+    expect(r.detail).toContain('cannot parse "unknown"');
+  });
+});
+
 describe("config-key", () => {
   it("passes when the dotted key exists", () => {
     const r = runProbe(
@@ -347,6 +402,23 @@ describe("loadManifest", () => {
     const bad = path.join(dir, "bad-probe.json");
     fs.writeFileSync(bad, JSON.stringify({ harness: "x", probes: [{}] }));
     expect(() => loadManifest(bad)).toThrow(/probes\[0\]/);
+  });
+  it("rejects an array policy that is neither rule nor map of rules", () => {
+    const bad = path.join(dir, "bad-arrays.json");
+    fs.writeFileSync(
+      bad,
+      JSON.stringify({ harness: "x", settingsArrays: "merge", probes: [] }),
+    );
+    expect(() => loadManifest(bad)).toThrow(/settingsArrays/);
+    fs.writeFileSync(
+      bad,
+      JSON.stringify({
+        harness: "x",
+        settingsArrays: { "hooks.PreToolUse": "join" },
+        probes: [],
+      }),
+    );
+    expect(() => loadManifest(bad)).toThrow(/settingsArrays/);
   });
 });
 

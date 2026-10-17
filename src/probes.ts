@@ -22,7 +22,7 @@ import {
 import {
   harnessConfigDir,
   resolveProfile,
-  type ArrayMerge,
+  type ArrayMergePolicy,
   type HarnessProfile,
   type SettingsLayer,
 } from "./harness-profiles.js";
@@ -94,7 +94,7 @@ export interface ProbeContext {
    * see what the manifest asked for. */
   settingsLayers?: SettingsLayer[];
   /** How that stack combines list values; see `ProbeContext.settingsLayers`. */
-  settingsArrays?: ArrayMerge;
+  settingsArrays?: ArrayMergePolicy;
   /** The reports a `harness-reports` probe may name — the profile's, with the
    * manifest's own declarations folded in by the runner. */
   reports?: Record<string, HarnessReport>;
@@ -122,6 +122,26 @@ export function harnessVersion(harness: string, versionArgs: string[]): string {
   if (!ok) return "unknown";
   return out.trim().split("\n")[0]?.trim() ?? "unknown";
 }
+
+/** The first major[.minor[.patch]] run in a version string, tolerant of a
+ * prefix ("v2.1.277"), a preamble ("fake-harness 1.2.3") and a missing patch
+ * ("2.1" → 2.1.0). Null when the string carries no number at all: an
+ * unparseable version is not satisfiable, so the version probe fails on it
+ * rather than pass as though a floor had been checked. */
+function parseVersionTriple(s: string): [number, number, number] | null {
+  const m = /(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(s);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0)];
+}
+
+/** Numeric major.minor.patch comparison; prerelease suffixes are ignored. */
+const atLeast = (
+  have: [number, number, number],
+  floor: [number, number, number],
+): boolean =>
+  have[0] > floor[0] ||
+  (have[0] === floor[0] &&
+    (have[1] > floor[1] || (have[1] === floor[1] && have[2] >= floor[2])));
 
 /** The whole tokens of a harness's help output. The text is split on
  * whitespace and on the punctuation that glues a flag to its placeholder, so a
@@ -428,7 +448,35 @@ function runKnownProbe(
     }
     case "version": {
       const v = ctx.harnessVersion ?? harnessVersion(ctx.harness, versionArgs);
-      return { probe: "version", status: "pass", detail: v };
+      // Without a floor the probe records the version, as it always has.
+      if (spec.minimum === undefined) {
+        return { probe: "version", status: "pass", detail: v };
+      }
+      const have = parseVersionTriple(v);
+      const floor = parseVersionTriple(spec.minimum);
+      // Either side unparseable fails the probe; unparseable is not
+      // satisfiable, and "unknown" is a broken integration, not a healthy one.
+      if (!have || !floor) {
+        const unparseable = !floor
+          ? `the manifest's floor "${spec.minimum}"`
+          : `"${v}"`;
+        return {
+          probe: "version",
+          status: fail(spec),
+          detail: `cannot parse ${unparseable} as major.minor.patch`,
+        };
+      }
+      return atLeast(have, floor)
+        ? {
+            probe: "version",
+            status: "pass",
+            detail: `${v} meets the manifest's floor ${spec.minimum}`,
+          }
+        : {
+            probe: "version",
+            status: fail(spec),
+            detail: `harness ${v} is older than the manifest's floor ${spec.minimum}`,
+          };
     }
     case "flag-accepted": {
       // Flags for a subcommand-shaped CLI live in that subcommand's help;

@@ -83,11 +83,12 @@ export interface HarnessProfile {
    */
   settingsLayers: SettingsLayer[];
   /**
-   * How values found in more than one layer combine. `concat` for a harness
-   * that runs every registered hook whatever scope declared it; `override`
-   * where the nearest scope replaces the others outright.
+   * How values found in more than one layer combine: one rule for every list,
+   * or a per-key map — see `ArrayMergePolicy`. `concat` for a harness that
+   * runs every registered hook whatever scope declared it; `override` where
+   * the nearest scope replaces the others outright.
    */
-  settingsArrays: ArrayMerge;
+  settingsArrays: ArrayMergePolicy;
   /**
    * Reports this harness produces about itself, by name, and how to read
    * each — the facts a `harness-reports` probe asserts come from here. A
@@ -129,6 +130,13 @@ export function harnessConfigDir(
       : live.configDir.default.replace(/\{home\}/g, os.homedir()),
   );
 }
+/**
+ * The array policy for a whole stack: one rule for every list, or a map from
+ * dotted key path to rule with a `default` entry for the paths it does not
+ * name. A harness whose hooks accumulate across scopes while another key's
+ * nearest scope replaces the list cannot say that with one string (D-026).
+ */
+export type ArrayMergePolicy = ArrayMerge | Record<string, ArrayMerge>;
 
 export function parseJsonLenient(text: string): unknown {
   try {

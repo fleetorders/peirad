@@ -38,6 +38,31 @@ plain — a leftover key that happens to hold a token is named without being
 echoed (`legacy.apiToken = value not shown`), and a mismatch on such a key
 reports that it holds a different value without printing either side.
 
+## A floor on the version
+
+The `version` probe records the harness's version; add `minimum` and it also
+judges it. The floor is compared numerically on major.minor.patch, tolerating
+the shapes version strings come in (`v2.1.277`, `2.1.277 (Claude Code)`,
+`my-harness 2.1`):
+
+```json
+{ "type": "version", "minimum": "2.1.277", "critical": true }
+```
+
+A harness older than the floor fails with both sides named:
+
+```
+BLKD  version: harness 2.1.100 is older than the manifest's floor 2.1.277
+```
+
+This is for an integration that is only real from some version on: a repo
+whose entire behavioral contract rides on its instruction file, which the
+harness only began loading natively in a given release, is silently
+instruction-free on anything older — and a record-only probe calls that
+healthy. A version string that cannot be parsed fails too: "unknown" is a
+broken integration, not a satisfying one. Without `minimum` the probe records
+the version and never judges it, exactly as before.
+
 A feature that shells out to another program declares it, so "installed, but
 its helper is gone" stops reading as healthy:
 
@@ -117,7 +142,23 @@ at run time:
 where every layer's entries apply (a harness that runs every registered hook,
 whichever file declared it) or `override` where the nearest scope replaces the
 rest. It is the difference between "my hook moved scope" and "my hook is dead",
-so it is declared, never guessed.
+so it is declared, never guessed. A single string is the rule for every list;
+a harness that needs both at once writes a map — one rule per dotted key path,
+with a `default` for the paths it does not name:
+
+```json
+{
+  "settingsArrays": {
+    "default": "concat",
+    "hooks.PreToolUse": "override"
+  }
+}
+```
+
+A path matches exactly (`hooks.PreToolUse` names the list at that path, not
+everything under `hooks`), and a map that names no `default` merges its
+unnamed paths `concat` — `peirad validate` warns, because a rule the manifest
+implies but does not say is drift of its own.
 
 ## What the harness says about itself
 

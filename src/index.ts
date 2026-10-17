@@ -13,11 +13,13 @@ export {
 } from "./harness-profiles.js";
 export type {
   ArrayMerge,
+  ArrayMergePolicy,
   HarnessProfile,
   HarnessUsage,
   SettingsLayer,
 } from "./harness-profiles.js";
 export {
+  arrayMergeAt,
   describeLayers,
   effectiveSettings,
   layerPath,
