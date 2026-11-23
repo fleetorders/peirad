@@ -1,4 +1,7 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# CodeRabbit comments on pull requests but never requests changes.
+# CodeRabbit holds a merge on Critical and Major findings only, and approves by itself once
+# those threads are resolved. Lower findings stay comments.
 reviews:
-  request_changes_workflow: false
+  auto_approvals:
+    enabled: true
+    min_blocking_severity: major
