@@ -1,4 +1,1 @@
-# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# CodeRabbit comments on pull requests but never requests changes.
-reviews:
-  request_changes_workflow: false
+inheritance: true
